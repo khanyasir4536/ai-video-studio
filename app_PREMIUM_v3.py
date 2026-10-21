@@ -168,7 +168,7 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 <button class="navbtn" data-nav="connect" onclick="switchView('connect')">🔑 Connect Gemini</button>
 <button class="navbtn" data-nav="about" onclick="switchView('about')">ℹ️ About / Help</button>
 <button class="navbtn" data-nav="console" onclick="switchView('console')">🖥 Console</button>
-<p class="small" style="margin:16px 6px">FREE images: Pollinations (no key needed), Cloudflare FLUX (free account), or free stock photos — Openverse (no key), Pixabay and Pexels (free key). Optional: connect your own Gemini account on the Connect Gemini page (saved once, no password).</p>
+<p class="small" style="margin:16px 6px">FREE images: Pollinations (no key needed), Cloudflare FLUX (free account), or free stock photos — Wikimedia Commons and Openverse (no key), Pixabay and Pexels (free key). Optional: connect your own Gemini account on the Connect Gemini page (saved once, no password).</p>
 </aside>
 <div class="main">
 
@@ -199,8 +199,8 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 <label><input type="radio" name="style" value="2D Cartoon" checked>2D Cartoon</label><label><input type="radio" name="style" value="3D Animated Pixar style">3D Pixar</label><label><input type="radio" name="style" value="3D Cartoon">3D Cartoon</label><label><input type="radio" name="style" value="Realistic">Realistic</label><label><input type="radio" name="style" value="Anime">Anime</label><label><input type="radio" name="style" value="Stickman">Stickman</label><label><input type="radio" name="style" value="Cinematic">Cinematic</label><label><input type="radio" name="style" value="Comic Book">Comic Book</label><label><input type="radio" name="style" value="Documentary">Documentary</label>
 </div>
 <div class="two"><div><label>Aspect Ratio</label><select id="ratio"><option>9:16</option><option>16:9</option><option>1:1</option></select></div>
-<div><label>Image Source</label><select id="imageMode"><option value="pollinations" selected>🆓 FREE — Pollinations (no key needed)</option><option value="cloudflare">🆓 FREE — Cloudflare FLUX (account + token)</option><option value="gemini">Gemini (connected account — billing required)</option><option value="openverse">🆓 FREE — Stock Photos: Openverse (no key)</option><option value="pixabay">🆓 FREE — Stock Photos: Pixabay (free key)</option><option value="pexels">🆓 FREE — Stock Photos: Pexels (free key)</option><option value="upload">My uploaded pictures</option></select></div></div>
-<p class="small">Pollinations FREE and Openverse stock photos: nothing is required. Cloudflare: enter the Account ID + Token in the fields below (the token is NOT saved). Gemini: select a connected account on the Connect Gemini page. Pixabay / Pexels: enter your free API key below (keys are used only for this job and are NOT saved). Stock photos are real photographs matched to each scene's prompt.</p>
+<div><label>Image Source</label><select id="imageMode"><option value="pollinations" selected>🆓 FREE — Pollinations (no key needed)</option><option value="cloudflare">🆓 FREE — Cloudflare FLUX (account + token)</option><option value="gemini">Gemini (connected account — billing required)</option><option value="wikimedia">🆓 FREE — Stock Photos: Wikimedia Commons (no key)</option><option value="openverse">🆓 FREE — Stock Photos: Openverse (no key)</option><option value="pixabay">🆓 FREE — Stock Photos: Pixabay (free key)</option><option value="pexels">🆓 FREE — Stock Photos: Pexels (free key)</option><option value="upload">My uploaded pictures</option></select></div></div>
+<p class="small">Pollinations FREE, Wikimedia Commons and Openverse stock photos: nothing is required. Cloudflare: enter the Account ID + Token in the fields below (the token is NOT saved). Gemini: select a connected account on the Connect Gemini page. Pixabay / Pexels: enter your free API key below (keys are used only for this job and are NOT saved). Stock photos are real photographs matched to each scene's prompt.</p>
 <div class="two"><div><label>Cloudflare Account ID</label><input id="cfAccount" autocomplete="off" placeholder="Only for Cloudflare mode"></div><div><label>Cloudflare API Token</label><input id="cfToken" type="password" autocomplete="off" placeholder="With Workers AI permission"></div></div>
 <div class="two"><div><label>Pixabay API Key (free)</label><input id="pixabayKey" type="password" autocomplete="off" placeholder="Only for Pixabay mode — not saved"></div><div><label>Pexels API Key (free)</label><input id="pexelsKey" type="password" autocomplete="off" placeholder="Only for Pexels mode — not saved"></div></div>
 <div class="two"><div><label>Pollinations Key (optional)</label><input id="pollinationsKey" type="password" autocomplete="off" placeholder="Optional — only if you have one, not saved"></div><div><label>&nbsp;</label><p class="small" style="margin:6px 0">Pollinations works without any key. If you have a Pollinations token, enter it here to raise the free limits — it is used only for this job and is NOT saved.</p></div></div>
@@ -259,7 +259,7 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 
 <section class="view" id="view-about"><div class="card"><h2>ℹ️ About / Help</h2>
 <p class="small">This website runs on FREE image sources by default — no sign-in and no paid account is required. You can also optionally connect your own Gemini API key on the Connect Gemini page (saved once, then fully automatic).</p>
-<p class="small"><b>Image sources:</b> Pollinations (free AI images, no key), Cloudflare FLUX (free account + token, entered per job and never saved), Gemini (your connected account), Openverse stock photos (no key), Pixabay and Pexels stock photos (free API key, entered per job and never saved), or your own uploaded pictures.</p>
+<p class="small"><b>Image sources:</b> Pollinations (free AI images, no key), Cloudflare FLUX (free account + token, entered per job and never saved), Gemini (your connected account), Wikimedia Commons and Openverse stock photos (no key), Pixabay and Pexels stock photos (free API key, entered per job and never saved), or your own uploaded pictures.</p>
 <p class="small"><b>How it works:</b> paste a script in the Studio, pick an image source and a free voice, then press Launch. Videos are rendered one at a time in the Queue; finished videos appear under Deliverables.</p>
 <p class="small"><b>Google Flow / Veo:</b> you can download a ready-made Prompt Sheet from the Studio, create clips yourself in Google Flow, and add them under "Veo / Flow scene clips" — the studio will add voiceover and captions and finish the video.</p>
 </div></section>
@@ -333,8 +333,8 @@ let timer=null;
 async function launch(queuedOnly){let script=document.getElementById('script').value.trim();if(!script){alert('Please paste your script first.');return;}
 const mode=document.getElementById('imageMode').value;
 if(mode==='gemini'&&!document.getElementById('accountSelect').value){alert('Gemini mode: connect and select a Gemini account on the Connect Gemini page — or use one of the FREE sources (Pollinations / Openverse).');switchView('connect');return;}
-if(mode==='pixabay'&&!document.getElementById('pixabayKey').value.trim()){alert('Pixabay mode: enter your free Pixabay API key in the Image Source section — or use Openverse stock photos (no key needed).');return;}
-if(mode==='pexels'&&!document.getElementById('pexelsKey').value.trim()){alert('Pexels mode: enter your free Pexels API key in the Image Source section — or use Openverse stock photos (no key needed).');return;}
+if(mode==='pixabay'&&!document.getElementById('pixabayKey').value.trim()){alert('Pixabay mode: enter your free Pixabay API key in the Image Source section — or use Wikimedia Commons or Openverse stock photos (no key needed).');return;}
+if(mode==='pexels'&&!document.getElementById('pexelsKey').value.trim()){alert('Pexels mode: enter your free Pexels API key in the Image Source section — or use Wikimedia Commons or Openverse stock photos (no key needed).');return;}
 if(mode==='cloudflare'&&(!document.getElementById('cfAccount').value.trim()||!document.getElementById('cfToken').value.trim())){alert('For Cloudflare mode, enter the Account ID and Token.');return;}
 let b=document.getElementById('launch');b.disabled=true;document.getElementById('result').innerHTML='';document.getElementById('status').textContent=queuedOnly?'Adding to queue...':'Starting...';document.getElementById('progress').value=0;
 try{let r=await fetch('/api/launch',{method:'POST',body:(()=>{let f=new FormData();let s=collectSettings();let vals={script:s.script,style:s.style,voice:s.voice,ratio:s.ratio,speed:s.speed,captions:s.captions,transitions:s.transitions,motion:s.motion,captionStyle:s.captionStyle,imageMode:s.imageMode,accountName:document.getElementById('accountSelect').value,cfAccount:document.getElementById('cfAccount').value,cfToken:document.getElementById('cfToken').value,pixabayKey:document.getElementById('pixabayKey').value,pexelsKey:document.getElementById('pexelsKey').value,pollinationsKey:document.getElementById('pollinationsKey').value,characterBible:s.characterBible,projectName:document.getElementById('projectName').value,sceneEdits:sceneEdits.length?JSON.stringify(sceneEdits):''};for(let [k,v] of Object.entries(vals))f.append(k,v);for(let file of document.getElementById('uploads').files)f.append('images',file);for(let file of document.getElementById('sceneClips').files)f.append('sceneclips',file);const ov=document.getElementById('ownVoice').files[0];if(ov)f.append('voiceover',ov);const mf=document.getElementById('musicFile').files[0];if(mf)f.append('musicfile',mf);return f;})()});
@@ -733,6 +733,13 @@ def _stock_search_urls(provider, api_key, query, ratio):
                   'orientation': _stock_orientation(ratio, provider)}
         url = 'https://api.pexels.com/v1/search?' + urllib.parse.urlencode(params)
         headers['Authorization'] = api_key
+    elif provider == 'wikimedia':  # Wikimedia Commons - no key required
+        params = {'action': 'query', 'generator': 'search',
+                  'gsrsearch': f'{query} filetype:bitmap', 'gsrnamespace': 6,
+                  'gsrlimit': 5, 'prop': 'imageinfo', 'iiprop': 'url|size|mime',
+                  'iiurlwidth': 1280, 'format': 'json'}
+        url = 'https://commons.wikimedia.org/w/api.php?' + urllib.parse.urlencode(params)
+        headers = {'User-Agent': 'AI-Video-Studio-Pro/1.0 (free stock photo search; scene pictures)'}
     else:  # openverse - no key required
         params = {'q': query, 'page_size': 5, 'license_type': 'all'}
         url = 'https://api.openverse.org/v1/images/?' + urllib.parse.urlencode(params)
@@ -749,6 +756,19 @@ def _stock_search_urls(provider, api_key, query, ratio):
         for photo in data.get('photos') or []:
             src = photo.get('src') or {}
             u = src.get('large2x') or src.get('large') or src.get('original')
+            if u:
+                urls.append(u)
+    elif provider == 'wikimedia':
+        pages = list(((data.get('query') or {}).get('pages') or {}).values())
+        pages.sort(key=lambda pg: pg.get('index', 999))
+        for page in pages:
+            infos = page.get('imageinfo') or []
+            if not infos:
+                continue
+            info = infos[0]
+            if info.get('mime') not in ('image/jpeg', 'image/png'):
+                continue
+            u = info.get('thumburl') or info.get('url')
             if u:
                 urls.append(u)
     else:
@@ -770,13 +790,15 @@ def _download_image_url(url, output):
 def generate_stock_photo(provider, api_key, scene_prompt, ratio, output, seed=42):
     """Fetch ONE free stock photo for a scene.
 
-    Openverse needs no key; Pixabay/Pexels use a free key that is held only
-    in memory for this job and never saved to disk. The search query is
-    derived from the scene's image prompt; if a search finds nothing, retry
-    once with a shorter query, then raise so the caller can fall back to a
-    placeholder card (same behaviour as Pollinations failures).
+    Openverse and Wikimedia Commons need no key; Pixabay/Pexels use a free
+    key that is held only in memory for this job and never saved to disk.
+    The search query is derived from the scene's image prompt; if a search
+    finds nothing, retry once with a shorter query, then raise so the caller
+    can fall back to a placeholder card (same behaviour as Pollinations
+    failures).
     """
-    label = {'openverse': 'Openverse', 'pixabay': 'Pixabay', 'pexels': 'Pexels'}[provider]
+    label = {'openverse': 'Openverse', 'pixabay': 'Pixabay', 'pexels': 'Pexels',
+             'wikimedia': 'Wikimedia Commons'}[provider]
     try:
         query = _stock_keywords(scene_prompt, 8)
         urls = _stock_search_urls(provider, api_key, query, ratio)
@@ -810,20 +832,24 @@ def generate_stock_photo(provider, api_key, scene_prompt, ratio, output, seed=42
 # Pollinations refusing the datacenter network), while another source works
 # fine. So a failed FREE scene no longer goes straight to a placeholder card:
 # the remaining free sources are tried first, in a fixed order.
-_SOURCE_LABELS = {'pollinations': 'Pollinations', 'openverse': 'Openverse',
-                  'pixabay': 'Pixabay', 'pexels': 'Pexels', 'cloudflare': 'Cloudflare FLUX'}
+_SOURCE_LABELS = {'pollinations': 'Pollinations', 'wikimedia': 'Wikimedia Commons',
+                  'openverse': 'Openverse', 'pixabay': 'Pixabay', 'pexels': 'Pexels',
+                  'cloudflare': 'Cloudflare FLUX'}
 
 
 def _free_chain(data, chosen):
     """Order of FREE sources to try for one scene: the chosen FREE source
-    first, then Pollinations -> Openverse -> Pixabay (only when a key was
-    submitted with this job) -> Pexels (only when a key was submitted) ->
-    Cloudflare (only when Account ID + Token were submitted).
+    first, then Pollinations -> Wikimedia Commons -> Openverse -> Pixabay
+    (only when a key was submitted with this job) -> Pexels (only when a key
+    was submitted) -> Cloudflare (only when Account ID + Token were
+    submitted). Wikimedia sits ahead of Openverse because the Commons API is
+    keyless and server-friendly, while Openverse is often Cloudflare-gated
+    from datacenter IPs.
 
     Gemini NEVER appears in this chain, in either direction: a Gemini failure
     must stay explicit (billing errors must not be hidden), and Gemini must
     never be charged as a surprise fallback for another mode."""
-    order = ['pollinations', 'openverse']
+    order = ['pollinations', 'wikimedia', 'openverse']
     if data.get('pixabayKey'):
         order.append('pixabay')
     if data.get('pexelsKey'):
@@ -875,7 +901,7 @@ def _fetch_scene_picture(job, data, scene_index, scene_no, visual_prompt, image_
                        f'Picture {scene_no}: {label} failed - trying {_SOURCE_LABELS[chain[pos + 1]]} next...')
             continue
         if pos:
-            used = f'{label} photo' if source in ('openverse', 'pixabay', 'pexels') else label
+            used = f'{label} photo' if source in ('openverse', 'pixabay', 'pexels', 'wikimedia') else label
             update(job, progress,
                    f'Picture {scene_no}: {_SOURCE_LABELS[chain[0]]} failed — {used} used instead.')
         return source, pos > 0
@@ -886,6 +912,55 @@ def probe_duration(path):
     p = subprocess.run(['ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1',str(path)], capture_output=True,text=True,timeout=30)
     if p.returncode: raise RuntimeError('ffprobe failed: '+p.stderr[-300:])
     return float(p.stdout.strip())
+
+
+_XFADE_DURATION = 0.5
+_XFADE_MIXED_CYCLE = ['fade', 'fadeblack', 'smoothleft', 'dissolve', 'fadewhite', 'smoothright']
+
+
+def _join_xfade(segments, durations, transition_mode, output):
+    """Join uniform scene segments with REAL cross-fade transitions (xfade).
+
+    All segments share the same size / fps / codec (they are rendered that
+    way), so they can be chained: [0][1]xfade -> [x1]; [x1][2]xfade -> [x2].
+    Every junction overlaps _XFADE_DURATION seconds, so the joined video is
+    (n-1)*0.5s shorter than the sum of the segment durations (the caller
+    muxes the voiceover with -shortest to absorb that).
+
+    Junction offsets use the standard cumulative bookkeeping:
+        offset_k = (sum of durations of segments 0..k) - (k+1)*0.5
+    where `durations` are the per-scene narration durations the segments
+    were rendered from. 'fade' uses a plain fade at every junction; 'mixed'
+    cycles fade / fadeblack / smoothleft / dissolve / fadewhite /
+    smoothright. Raises on any ffmpeg failure so the caller can fall back
+    to the plain concat join - transitions must never kill a job.
+    """
+    n = len(segments)
+    if n < 2:
+        raise ValueError('xfade needs at least two segments.')
+    if transition_mode == 'fade':
+        kinds = ['fade'] * (n - 1)
+    else:  # mixed
+        kinds = [_XFADE_MIXED_CYCLE[k % len(_XFADE_MIXED_CYCLE)] for k in range(n - 1)]
+    parts = []
+    prev = '0:v'
+    elapsed = 0.0
+    for k in range(n - 1):
+        elapsed += durations[k]
+        offset = elapsed - (k + 1) * _XFADE_DURATION
+        out_label = 'vout' if k == n - 2 else f'x{k + 1}'
+        parts.append(f'[{prev}][{k + 1}:v]xfade=transition={kinds[k]}'
+                     f':duration={_XFADE_DURATION}:offset={offset:.3f}[{out_label}]')
+        prev = out_label
+    cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error']
+    for seg in segments:
+        cmd += ['-i', str(seg)]
+    cmd += ['-filter_complex', ';'.join(parts), '-map', '[vout]', '-an',
+            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '24',
+            '-pix_fmt', 'yuv420p', str(output)]
+    p = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+    if p.returncode:
+        raise RuntimeError('xfade join failed: ' + p.stderr[-800:])
 
 
 def run_job(job, data):
@@ -905,9 +980,9 @@ def run_job(job, data):
         if mode == 'cloudflare' and not (data.get('cfAccount') and data.get('cfToken')):
             raise ValueError('Account ID and API Token are required for Cloudflare FREE mode (enter them in the Image Source section), or select Pollinations FREE mode.')
         if mode == 'pixabay' and not data.get('pixabayKey'):
-            raise ValueError('A free Pixabay API key is required for Pixabay stock photos (enter it in the Image Source section), or select Openverse stock photos (no key needed).')
+            raise ValueError('A free Pixabay API key is required for Pixabay stock photos (enter it in the Image Source section), or select Wikimedia Commons or Openverse stock photos (no key needed).')
         if mode == 'pexels' and not data.get('pexelsKey'):
-            raise ValueError('A free Pexels API key is required for Pexels stock photos (enter it in the Image Source section), or select Openverse stock photos (no key needed).')
+            raise ValueError('A free Pexels API key is required for Pexels stock photos (enter it in the Image Source section), or select Wikimedia Commons or Openverse stock photos (no key needed).')
         uploads = data.get('uploads', [])
         if mode == 'upload' and not uploads and not data.get('clips'):
             raise ValueError('Upload at least one picture, or choose one of the free image sources.')
@@ -1003,6 +1078,14 @@ def run_job(job, data):
         fps=24
         segments=[]
         transition=data.get('transitions','mixed')
+        # Real xfade transitions need uniform segments and at least ~1.2s in
+        # every neighbouring pair; otherwise the whole video keeps the plain
+        # concat join with the small baked-in edge fades (exactly as before).
+        # When xfade is planned, segments are rendered WITHOUT edge fades so
+        # junctions are not double-faded.
+        use_xfade = (transition != 'cut' and len(durations) >= 2 and
+                     all(durations[k] >= 1.2 and durations[k + 1] >= 1.2
+                         for k in range(len(durations) - 1)))
         for i,duration in enumerate(durations):
             # Scene video frame count follows narration duration; no fixed duration dropdown.
             frames=max(2,round(duration*fps))
@@ -1011,7 +1094,7 @@ def run_job(job, data):
                 # Flow/Veo clip: loop it to the scene duration, fix size/crop,
                 # overlay captions, then treat it as a segment like the other scenes.
                 src = veo_clips[i]
-                fade_v = transition=='fade' or (transition=='mixed' and i%2==1)
+                fade_v = not use_xfade and (transition=='fade' or (transition=='mixed' and i%2==1))
                 fade_chain = ''
                 if fade_v and duration>0.8:
                     fd=min(.28,duration/5)
@@ -1035,7 +1118,7 @@ def run_job(job, data):
                 update(job, 60+int(30*(i+1)/len(scenes)),f'Rendered scene {i+1}/{len(scenes)} (Veo clip)')
                 continue
             img=work/f'frame_{i:04d}.jpg'
-            fade = transition=='fade' or (transition=='mixed' and i%2==1)
+            fade = not use_xfade and (transition=='fade' or (transition=='mixed' and i%2==1))
             motion_mode = data.get('motion', 'off')
             if motion_mode == 'on':
                 motion_mode = 'pan'
@@ -1065,15 +1148,30 @@ def run_job(job, data):
         with concat.open('w',encoding='utf-8') as f:
             for seg in segments: f.write(f"file '{seg.name}'\n")
         result=OUT/(job+'.mp4')
+        # Join the scene segments into one video stream. When use_xfade, the
+        # segments (rendered WITHOUT baked-in edge fades) are joined with a
+        # real xfade chain; the joined video is (n-1)*0.5s shorter than the
+        # voiceover, which the -shortest flag on the mux below absorbs. If
+        # the xfade run fails for any reason, fall back to the plain concat
+        # join - transitions must never kill a job.
+        video_args = ['-f','concat','-safe','0','-i',str(concat)]
+        if use_xfade:
+            update(job, 91, 'Applying transitions between scenes...')
+            try:
+                joined = work/'joined.mp4'
+                _join_xfade(segments, durations, transition, joined)
+                video_args = ['-i', str(joined)]
+            except Exception:
+                update(job, 91, 'Transitions could not be applied — plain join used.')
         if data.get('musicPath'):
-            cmd=['ffmpeg','-y','-hide_banner','-loglevel','error','-f','concat','-safe','0',
-                 '-i',str(concat),'-i',str(audio),'-stream_loop','-1','-i',str(data['musicPath']),
+            cmd=['ffmpeg','-y','-hide_banner','-loglevel','error',
+                 *video_args,'-i',str(audio),'-stream_loop','-1','-i',str(data['musicPath']),
                  '-filter_complex','[1:a]volume=1.0[a1];[2:a]volume=0.16[a2];[a1][a2]amix=inputs=2:duration=first[aout]',
                  '-map','0:v:0','-map','[aout]','-c:v','copy','-c:a','aac','-b:a','128k',
                  '-shortest','-movflags','+faststart',str(result)]
         else:
-            cmd=['ffmpeg','-y','-hide_banner','-loglevel','error','-f','concat','-safe','0',
-                 '-i',str(concat),'-i',str(audio),'-map','0:v:0','-map','1:a:0',
+            cmd=['ffmpeg','-y','-hide_banner','-loglevel','error',
+                 *video_args,'-i',str(audio),'-map','0:v:0','-map','1:a:0',
                  '-c:v','copy','-c:a','aac','-b:a','128k','-shortest','-movflags','+faststart',str(result)]
         p=subprocess.run(cmd,capture_output=True,text=True,timeout=1800)
         if p.returncode: raise RuntimeError('Final FFmpeg error: '+p.stderr[-1200:])
@@ -1214,7 +1312,7 @@ def launch():
         label = 'Pixabay' if data['imageMode'] == 'pixabay' else 'Pexels'
         data[field]=str(data.get(field,'')).strip()
         if not data[field]:
-            return jsonify(error=f'{label} stock photos: first enter your free {label} API key in the Image Source section, or select Openverse stock photos (no key needed).'),400
+            return jsonify(error=f'{label} stock photos: first enter your free {label} API key in the Image Source section, or select Wikimedia Commons or Openverse stock photos (no key needed).'),400
         if len(data[field])>256:
             return jsonify(error=f'The {label} API key length is not valid.'),400
         # The token stays in memory only for this job; it is not saved to disk.
@@ -1491,6 +1589,20 @@ def verify():
                            'detail': f'Search works (HTTP {resp.status}, {found} test result)'})
     except Exception as exc:
         checks.append({'name': 'Openverse FREE stock photos', 'ok': False, 'detail': str(exc)[:120]})
+    try:
+        wm_url = 'https://commons.wikimedia.org/w/api.php?' + urllib.parse.urlencode(
+            {'action': 'query', 'generator': 'search',
+             'gsrsearch': 'nature filetype:bitmap', 'gsrnamespace': 6, 'gsrlimit': 1,
+             'prop': 'imageinfo', 'iiprop': 'url|size|mime', 'iiurlwidth': 1280,
+             'format': 'json'})
+        req = urllib.request.Request(wm_url, headers={'User-Agent': 'AI-Video-Studio-Pro/1.0 (free stock photo search; scene pictures)'})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            payload = json.loads(resp.read().decode('utf-8'))
+            found = len(((payload.get('query') or {}).get('pages') or {}))
+            checks.append({'name': 'Wikimedia Commons FREE stock photos', 'ok': resp.status == 200 and found > 0,
+                           'detail': f'Search works (HTTP {resp.status}, {found} test result)'})
+    except Exception as exc:
+        checks.append({'name': 'Wikimedia Commons FREE stock photos', 'ok': False, 'detail': str(exc)[:120]})
     checks.append({'name': 'Pixabay / Pexels stock photos', 'ok': True,
                    'detail': 'Needs your free key in the form above - it is checked when a job runs.'})
     checks.append({'name': 'Cloudflare FLUX', 'ok': True,
