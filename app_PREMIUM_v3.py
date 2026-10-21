@@ -16,8 +16,6 @@ import urllib.request
 import uuid
 import secrets
 import hashlib
-from cryptography.fernet import Fernet, InvalidToken
-from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 from pathlib import Path
 
 import edge_tts
@@ -59,20 +57,20 @@ def _friendly_gemini_error(exc):
     raw = str(exc)
     low = raw.lower()
     if 'resource_exhausted' in low or 'quota' in low or '429' in raw:
-        return ('Gemini IMAGE QUOTA / BILLING error: Google ke current rules ke mutabiq tamam Gemini image '
-                'models FREE tier par available NAHI hain (Free Tier = Not available). Jis Google project ki '
-                'API key hai, us mein billing / prepaid credits enable karein, warna image nahi banegi. '
-                'Asal Google error: ' + raw[:350])
+        return ('Gemini IMAGE QUOTA / BILLING error: Under current Google rules, all Gemini image '
+                'models are NOT available on the FREE tier (Free Tier = Not available). In the Google project that owns '
+                'this API key, enable billing / prepaid credits; otherwise, images cannot be generated. '
+                'Original Google error: ' + raw[:350])
     if 'api_key_invalid' in low or 'api key not valid' in low:
-        return 'Gemini API KEY ghalat hai. Google AI Studio se sahi key bana kar dobara save karein. Asal error: ' + raw[:350]
+        return 'Gemini API KEY is incorrect. Create a correct key in Google AI Studio and save it again. Original error: ' + raw[:350]
     if 'not_found' in low or '404' in raw:
-        return (f'Gemini MODEL nahi mila (purana/band model ho sakta hai). Model {DEFAULT_IMAGE_MODEL} set karke '
-                'dobara save/test karein. Asal error: ' + raw[:350])
+        return (f'Gemini MODEL not found (it may be an old or discontinued model). Set the model to {DEFAULT_IMAGE_MODEL} and '
+                'save/test it again. Original error: ' + raw[:350])
     if '402' in raw or 'billing' in low or 'prepay' in low or 'credits' in low:
-        return 'Gemini BILLING / CREDITS ka masla hai (402). Google Cloud billing mein credits add karein. Asal error: ' + raw[:350]
+        return 'There is a Gemini BILLING / CREDITS problem (402). Add credits in Google Cloud Billing. Original error: ' + raw[:350]
     if 'permission' in low or '403' in raw:
-        return ('Gemini PERMISSION error (403): is key/project ko image model ki ijazat nahi - aksar billing '
-                'enable na honay ya region restriction se hota hai. Asal error: ' + raw[:350])
+        return ('Gemini PERMISSION error (403): this key/project does not have permission to use the image model - often because billing '
+                'is not enabled or because of a region restriction. Original error: ' + raw[:350])
     return raw
 app = Flask(__name__)
 LAN_MODE = os.environ.get('STUDIO_LAN') == '1'
@@ -103,34 +101,6 @@ def _resolve_voice(value):
     if value and re.fullmatch(r'[a-z]{2,3}-[A-Z]{2}-[A-Za-z0-9]+Neural', str(value)):
         return str(value)
     return VOICES['English Female']
-VAULT_FILE = ROOT / 'gemini_accounts.vault.json'
-VAULT_LOCK = threading.RLock()
-# Local desktop mode: unlocked keys live only in this process's memory.
-UNLOCKED = {}
-SESSIONS = {}
-
-def _derive(password, salt):
-    return base64.urlsafe_b64encode(Scrypt(salt=salt, length=32, n=2**14, r=8, p=1).derive(password.encode('utf-8')))
-
-def _read_vault():
-    if not VAULT_FILE.exists(): return None
-    return json.loads(VAULT_FILE.read_text(encoding='utf-8'))
-
-def _write_vault(vault):
-    temp = VAULT_FILE.with_suffix('.tmp')
-    temp.write_text(json.dumps(vault, indent=2), encoding='utf-8')
-    os.replace(temp, VAULT_FILE)
-    if os.name != 'nt': os.chmod(VAULT_FILE, 0o600)
-
-def _session():
-    token = request.cookies.get('studio_session', '')
-    return token if token in SESSIONS else None
-
-def _account_state():
-    token = _session()
-    if not token: return None
-    return SESSIONS[token]
-
 def _same_origin():
     origin = request.headers.get('Origin')
     if not origin: return True
@@ -195,56 +165,58 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 <button class="navbtn" data-nav="projects" onclick="switchView('projects')">📁 Projects / Drafts <span class="badge" id="draftCount" style="display:none">0</span></button>
 <button class="navbtn" data-nav="deliverables" onclick="switchView('deliverables')">✅ Deliverables</button>
 <button class="navbtn" data-nav="flow" onclick="switchView('flow')">🌊 Google Flow / Veo</button>
-<button class="navbtn" data-nav="profiles" onclick="switchView('profiles')">🔑 Profiles / API Keys</button>
+<button class="navbtn" data-nav="connect" onclick="switchView('connect')">🔑 Connect Gemini</button>
+<button class="navbtn" data-nav="about" onclick="switchView('about')">ℹ️ About / Help</button>
 <button class="navbtn" data-nav="console" onclick="switchView('console')">🖥 Console</button>
-<p class="small" style="margin:16px 6px">FREE images: Pollinations (koi key nahi) ya Cloudflare FLUX (free account). Gemini mode ke liye billing lazmi hai.</p>
+<p class="small" style="margin:16px 6px">FREE images: Pollinations (no key needed), Cloudflare FLUX (free account), or free stock photos — Openverse (no key), Pixabay and Pexels (free key). Optional: connect your own Gemini account on the Connect Gemini page (saved once, no password).</p>
 </aside>
 <div class="main">
 
 <section class="view active" id="view-studio">
-<div class="notice"><b>Advanced Studio:</b> Projects save karein, Queue mein kai videos lagayein, FREE AI Writer se script likhwayein, 25 voices + apna voiceover + background music. <b>Note:</b> Veo video clips aur ElevenLabs clone voices is free version mein nahi hain — woh paid services hain. Yahan tasveerein + camera motion se video banta hai.</div>
+<div class="notice"><b>Advanced Studio:</b> Save projects, queue multiple videos, get scripts written by the FREE AI Writer, 25 voices + your own voiceover + background music. <b>Note:</b> Veo video clips and ElevenLabs cloned voices are not included in this free version — they are paid services. Here, videos are created from pictures + camera motion.</div>
 <div class="grid"><div>
 <div class="card"><h2>📁 Project</h2>
 <div class="two"><div><label>Project name</label><input id="projectName" placeholder="e.g. Want a phone story"></div>
-<div><label>Saved project load karein</label><select id="scriptSelect" onchange="applySelectedProject()"><option value="">— Choose a project —</option></select></div></div>
+<div><label>Load a saved project</label><select id="scriptSelect" onchange="applySelectedProject()"><option value="">— Choose a project —</option></select></div></div>
 <div class="rowflex" style="margin-top:12px"><button type="button" onclick="saveProject()">💾 Save Project / Draft</button><button type="button" class="danger" onclick="deleteSelectedProject()">Delete Project</button></div>
-<p class="small" id="projectMsg">Projects is PC par save rehte hain — dobara kholne par script + settings wapas mil jate hain.</p></div>
+<p class="small" id="projectMsg">Projects are saved on this PC — when you reopen the studio, your script and settings are restored.</p></div>
 
 <div class="card"><h2>1 · Script</h2>
-<label>Topic likhein — FREE AI Writer script bana dega</label>
+<label>Enter a topic — the FREE AI Writer will write the script</label>
 <div class="two"><input id="writerTopic" placeholder="e.g. A boy who wants a phone but has no money"><select id="writerLang"><option>English</option><option>Urdu</option><option>Hindi</option><option>Roman Urdu</option></select></div>
-<div class="rowflex" style="margin-top:10px"><button type="button" class="gold" onclick="writeScript()">✍ FREE AI Writer — Script Banao</button></div>
-<label>Ya apni script paste karein</label><textarea id="script" style="min-height:210px" placeholder="Paste your ready script here. One paragraph per scene works best."></textarea>
-<p class="small">Video length narration ke hisab se khud banti hai. Har paragraph = ek scene = ek image.</p></div>
+<div class="rowflex" style="margin-top:10px"><button type="button" class="gold" onclick="writeScript()">✍ FREE AI Writer — Create Script</button></div>
+<label>Or paste your own script</label><textarea id="script" style="min-height:210px" placeholder="Paste your ready script here. One paragraph per scene works best."></textarea>
+<p class="small">The video length is determined automatically by the narration. Each paragraph = one scene = one image.</p></div>
 
 <div class="card"><h2>2 · Scene Timeline & Character</h2>
 <label>Character Bible / Consistent Character</label><textarea id="characterBible" style="min-height:88px" placeholder="Example: Ahmed, 10 years old, short black hair, green shalwar kameez, kind smile. Keep same look in every scene."></textarea>
-<label>Tayyar character presets (click karein)</label><div class="presets" id="presets"></div>
+<label>Ready-made character presets (click to use)</label><div class="presets" id="presets"></div>
 <div class="rowflex" style="margin:12px 0"><button type="button" onclick="previewScenes()">🎞 Preview / Refresh Scenes</button><button type="button" class="ghost" onclick="resetSceneEdits()">Reset Scene Edits</button><button type="button" class="gold" onclick="downloadFlowPrompts()">📋 Flow Prompt Sheet (Download)</button></div>
-<p class="small">Flow Prompt Sheet: har scene ke liye tayyar prompt file — Google Flow mein aik aik karke paste karein, clips banayein, download karke upar "Veo / Flow scene clips" mein laga dein.</p>
-<p id="sceneInfo" class="small">Scene timeline yahan aye ga. Har scene ki narration aur image prompt alag edit kar sakte hain.</p><div id="sceneTimeline"></div></div>
+<p class="small">Flow Prompt Sheet: a ready-made prompt file for every scene — paste the prompts into Google Flow one by one, create the clips, download them, and add them above under "Veo / Flow scene clips".</p>
+<p id="sceneInfo" class="small">The scene timeline will appear here. You can edit the narration and image prompt of each scene separately.</p><div id="sceneTimeline"></div></div>
 
 <div class="card"><h2>3 · Visual Style & Format</h2><div class="choices" id="styles">
 <label><input type="radio" name="style" value="2D Cartoon" checked>2D Cartoon</label><label><input type="radio" name="style" value="3D Animated Pixar style">3D Pixar</label><label><input type="radio" name="style" value="3D Cartoon">3D Cartoon</label><label><input type="radio" name="style" value="Realistic">Realistic</label><label><input type="radio" name="style" value="Anime">Anime</label><label><input type="radio" name="style" value="Stickman">Stickman</label><label><input type="radio" name="style" value="Cinematic">Cinematic</label><label><input type="radio" name="style" value="Comic Book">Comic Book</label><label><input type="radio" name="style" value="Documentary">Documentary</label>
 </div>
 <div class="two"><div><label>Aspect Ratio</label><select id="ratio"><option>9:16</option><option>16:9</option><option>1:1</option></select></div>
-<div><label>Image Source</label><select id="imageMode"><option value="pollinations" selected>🆓 FREE — Pollinations (koi key nahi)</option><option value="cloudflare">🆓 FREE — Cloudflare FLUX (account + token)</option><option value="gemini">Gemini (paid billing lazmi)</option><option value="upload">My uploaded pictures</option></select></div></div>
-<p class="small">Pollinations FREE: kuch nahi chahiye. Cloudflare: Profiles wale page par nahi — neeche fields mein Account ID + Token bharein (token save NAHI hota). Gemini: Profiles se account select karein.</p>
-<div class="two"><div><label>Cloudflare Account ID</label><input id="cfAccount" autocomplete="off" placeholder="Sirf Cloudflare mode ke liye"></div><div><label>Cloudflare API Token</label><input id="cfToken" type="password" autocomplete="off" placeholder="Workers AI permission wala"></div></div>
-<label>Upload images (Upload mode ke liye, scene order = file order)</label><input id="uploads" type="file" accept="image/png,image/jpeg,image/webp" multiple>
-<label>🎬 Veo / Flow scene clips (optional MP4 — pehle clips scenes ki jagah lagein ge, baqi scenes images se banenge)</label><input id="sceneClips" type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.mkv" multiple>
-<p class="small">Clips Google Flow se bana kar download karein (neeche Flow wala page dekhein), yahan laga dein — captions aur voiceover un par bhi lage ga.</p></div>
+<div><label>Image Source</label><select id="imageMode"><option value="pollinations" selected>🆓 FREE — Pollinations (no key needed)</option><option value="cloudflare">🆓 FREE — Cloudflare FLUX (account + token)</option><option value="gemini">Gemini (connected account — billing required)</option><option value="openverse">🆓 FREE — Stock Photos: Openverse (no key)</option><option value="pixabay">🆓 FREE — Stock Photos: Pixabay (free key)</option><option value="pexels">🆓 FREE — Stock Photos: Pexels (free key)</option><option value="upload">My uploaded pictures</option></select></div></div>
+<p class="small">Pollinations FREE and Openverse stock photos: nothing is required. Cloudflare: enter the Account ID + Token in the fields below (the token is NOT saved). Gemini: select a connected account on the Connect Gemini page. Pixabay / Pexels: enter your free API key below (keys are used only for this job and are NOT saved). Stock photos are real photographs matched to each scene's prompt.</p>
+<div class="two"><div><label>Cloudflare Account ID</label><input id="cfAccount" autocomplete="off" placeholder="Only for Cloudflare mode"></div><div><label>Cloudflare API Token</label><input id="cfToken" type="password" autocomplete="off" placeholder="With Workers AI permission"></div></div>
+<div class="two"><div><label>Pixabay API Key (free)</label><input id="pixabayKey" type="password" autocomplete="off" placeholder="Only for Pixabay mode — not saved"></div><div><label>Pexels API Key (free)</label><input id="pexelsKey" type="password" autocomplete="off" placeholder="Only for Pexels mode — not saved"></div></div>
+<label>Upload images (for Upload mode; scene order = file order)</label><input id="uploads" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+<label>🎬 Veo / Flow scene clips (optional MP4 — the first clips will take the place of the first scenes; the remaining scenes will be created from images)</label><input id="sceneClips" type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.mkv" multiple>
+<p class="small">Create the clips in Google Flow and download them (see the Flow page below), then add them here — captions and voiceover will be applied to them as well.</p></div>
 
 <div class="card"><h2>4 · Voice & Music</h2>
 <div class="vtabs" id="voiceTabs">
 <button type="button" class="vtab active" onclick="renderVoices('All',this)">All</button><button type="button" class="vtab" onclick="renderVoices('Fav',this)">⭐ Favourites</button><button type="button" class="vtab" onclick="renderVoices('English',this)">English</button><button type="button" class="vtab" onclick="renderVoices('Hindi',this)">Hindi</button><button type="button" class="vtab" onclick="renderVoices('Urdu',this)">Urdu</button><button type="button" class="vtab" onclick="renderVoices('Malay',this)">Malay</button>
 </div>
-<label>Narrator Voice — FREE (puri catalog load hoti hai, sainkadon awaazein)</label><input id="voiceSearch" placeholder="🔎 Voice dhundein: urdu, hindi, arabic, female, en-US..." oninput="renderVoices(currentVoiceFilter)"><select id="voice" style="margin-top:8px"></select>
-<div class="rowflex" style="margin-top:10px"><button type="button" onclick="previewVoice()">▶ Voice Preview</button><button type="button" class="ghost" onclick="toggleFav()">⭐ Favourite Karo/Hatao</button></div>
-<p class="small" id="voiceMsg">Preview ke liye internet chahiye (Edge TTS free hai).</p>
+<label>Narrator Voice — FREE (the full catalog loads — hundreds of voices)</label><input id="voiceSearch" placeholder="🔎 Search voices: urdu, hindi, arabic, female, en-US..." oninput="renderVoices(currentVoiceFilter)"><select id="voice" style="margin-top:8px"></select>
+<div class="rowflex" style="margin-top:10px"><button type="button" onclick="previewVoice()">▶ Voice Preview</button><button type="button" class="ghost" onclick="toggleFav()">⭐ Add/Remove Favourite</button></div>
+<p class="small" id="voiceMsg">An internet connection is required for the preview (Edge TTS is free).</p>
 <div class="two"><div><label>Voice speed</label><select id="speed"><option value="+0%">Normal</option><option value="-15%">Slow</option><option value="+15%">Fast</option></select></div>
-<div><label>Apna voiceover upload karein (optional — phir TTS nahi lagega)</label><input id="ownVoice" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg"></div></div>
-<label>Background music upload karein (optional, halki awaaz mein khud mix ho jayega)</label><input id="musicFile" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg"></div>
+<div><label>Upload your own voiceover (optional — if provided, TTS will not be used)</label><input id="ownVoice" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg"></div></div>
+<label>Upload background music (optional; it will be mixed in automatically at a low volume)</label><input id="musicFile" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg"></div>
 
 <div class="card"><h2>5 · Motion, Transitions & Captions</h2>
 <div class="two"><div><label>Camera motion</label><select id="motion"><option value="pan">Pan (left → right)</option><option value="zoomin">Zoom In</option><option value="zoomout">Zoom Out</option><option value="off">Static (fastest)</option></select></div>
@@ -257,55 +229,58 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 <p class="small" id="verifyResult"></p>
 </div>
 <div>
-<div class="card"><h2>Production Queue</h2><div class="status" id="status">Ready. Script paste karein aur Launch dabayein.</div><progress id="progress" max="100" value="0"></progress><div id="result"></div></div>
-<div class="card"><h2>Kya kya khud hota hai?</h2><p>✓ Script → scenes</p><p>✓ FREE AI images (Pollinations/Cloudflare) ya Gemini/upload</p><p>✓ Voiceover (25 free voices ya aap ki apni)</p><p>✓ Camera motion + transitions + captions</p><p>✓ Background music mix</p><p>✓ MP4 render + download</p><p class="small">FFmpeg PC par installed hona chahiye. Lambi videos mein waqt lagta hai. Queue mein videos aik ke baad aik banti hain.</p></div>
+<div class="card"><h2>Production Queue</h2><div class="status" id="status">Ready. Paste your script and press Launch.</div><progress id="progress" max="100" value="0"></progress><div id="result"></div></div>
+<div class="card"><h2>What happens automatically?</h2><p>✓ Script → scenes</p><p>✓ FREE images (Pollinations / Cloudflare / stock photos), Gemini (connected account) or your uploads</p><p>✓ Voiceover (25 free voices or your own)</p><p>✓ Camera motion + transitions + captions</p><p>✓ Background music mix</p><p>✓ MP4 render + download</p><p class="small">FFmpeg must be installed on this PC. Long videos take time. Videos in the queue are created one after another.</p></div>
 </div></div>
 </section>
 
-<section class="view" id="view-queue"><div class="card"><h2>📋 Queue — Tamam Jobs</h2><div id="queueList"><p class="small">Koi job nahi. Studio se video launch karein.</p></div></div></section>
+<section class="view" id="view-queue"><div class="card"><h2>📋 Queue — All Jobs</h2><div id="queueList"><p class="small">No jobs yet. Launch a video from the Studio.</p></div></div></section>
 
-<section class="view" id="view-assets"><div class="card"><h2>🖼 Asset Wall — Scene Images</h2><label>Job select karein</label><select id="assetsJobSel" onchange="loadAssets()"><option value="">— pehle job chalayein —</option></select><div class="assets" id="assetsGrid" style="margin-top:14px"></div></div></section>
+<section class="view" id="view-assets"><div class="card"><h2>🖼 Asset Wall — Scene Images</h2><label>Select a job</label><select id="assetsJobSel" onchange="loadAssets()"><option value="">— run a job first —</option></select><div class="assets" id="assetsGrid" style="margin-top:14px"></div></div></section>
 
-<section class="view" id="view-projects"><div class="card"><h2>📁 Projects / Drafts</h2><div id="projectsList"><p class="small">Koi saved project nahi.</p></div></div></section>
+<section class="view" id="view-projects"><div class="card"><h2>📁 Projects / Drafts</h2><div id="projectsList"><p class="small">No saved projects.</p></div></div></section>
 
-<section class="view" id="view-deliverables"><div class="card"><h2>✅ Deliverables — Tayyar Videos</h2><div id="videosList"><p class="small">Abhi koi video tayyar nahi.</p></div></div></section>
+<section class="view" id="view-deliverables"><div class="card"><h2>✅ Deliverables — Finished Videos</h2><div id="videosList"><p class="small">No finished video yet.</p></div></div></section>
 
 <section class="view" id="view-flow"><div class="card" style="border-color:#5274ac"><h2>🌊 Google Flow / Veo — Profiles</h2>
-<p class="small"><b>Sach yeh hai:</b> Google Flow ka koi free official API nahi hai. Flow website (labs.google) par wohi account chalega jis par <b>Google AI Plus / Pro / Ultra plan</b> ho — Veo clips usi plan ke credits se bante hain (Lite ~10, Fast ~20, Quality ~100 credits per clip). Is liye is software mein Flow is tarah jora gaya hai: profile save karein → <b>Open & Login</b> se isi PC par Flow khule ga → aap khud login karke apne scenes ke clips banayein (Prompt Sheet Studio page se download ho jati hai) → clips download karke Studio mein "Veo / Flow scene clips" mein laga dein. Software un clips par voiceover + captions laga kar final video bana dega.</p>
-<p class="small" style="color:#f9dda0">⚠ Kuch tools Flow ko kai accounts par khud-ba-khud (automation) chalate hain — woh Google ki terms ke khilaf ho sakta hai aur account ban ka khatra hota hai, is liye yahan woh tareeqa NAHI lagaya gaya. Apna account, apne haath se — mehfooz tareeqa.</p>
-<div class="two"><div><label>Profile name (maslan: acc1 — Primary)</label><input id="flowName" placeholder="acc1 — Primary"></div><div><label>Note (maslan: kis Gmail / kis plan par hai)</label><input id="flowNote" placeholder="Google AI Pro — mera main account"></div></div>
-<div class="rowflex" style="margin-top:12px"><button type="button" onclick="saveFlowProfile()">💾 Save Profile</button><button type="button" class="gold" onclick="openFlow()">🌐 Open Google Flow (Login)</button></div>
+<p class="small"><b>The honest truth:</b> Google Flow has no free official API. On the Flow website (labs.google), only an account with a <b>Google AI Plus / Pro / Ultra plan</b> will work — Veo clips are created using the credits of that plan (Lite ~10, Fast ~20, Quality ~100 credits per clip). That is why Flow is connected in this software as follows: save a profile → <b>Open & Login</b> opens Flow on this PC → sign in yourself and create clips for your scenes (the Prompt Sheet can be downloaded from the Studio page) → download the clips and add them in the Studio under "Veo / Flow scene clips". The software will apply voiceover and captions to those clips and produce the final video.</p>
+<p class="small" style="color:#f9dda0">⚠ Some tools run Flow automatically across many accounts — that can violate Google's terms and carries a risk of account bans, so that method has NOT been used here. Your own account, operated by you — the safe method.</p>
+<div class="two"><div><label>Profile name (e.g.: acc1 — Primary)</label><input id="flowName" placeholder="acc1 — Primary"></div><div><label>Note (e.g.: which Gmail / which plan it is on)</label><input id="flowNote" placeholder="Google AI Pro — my main account"></div></div>
+<div class="rowflex" style="margin-top:12px"><button type="button" onclick="saveFlowProfile()">💾 Save Profile</button><button type="button" class="gold" onclick="openFlow()">🌐 Open &amp; Login — Sign in to Google Flow</button></div>
 <p class="small" id="flowMsg"></p><div id="flowList" style="margin-top:10px"></div></div></section>
 
-<section class="view" id="view-profiles"><div class="card" id="apiPanel" style="border-color:#5274ac"><h2>🔑 Profiles · Gemini Accounts (sirf Gemini mode ke liye)</h2>
-<p class="small">FREE modes (Pollinations/Cloudflare) ke liye yeh zaroori NAHI. Gemini keys PC par password se encrypted save hoti hain. Google account ka password kabhi mat dein — sirf API key.</p>
-<div class="two"><div><label>Vault Password (kam az kam 12 characters)</label><input id="vaultPassword" type="password" autocomplete="new-password" placeholder="Apna vault password"></div><div><label>Vault</label><div class="rowflex"><button type="button" onclick="unlockVault()">🔓 Create / Unlock</button><button type="button" class="ghost" onclick="lockVault()">Lock</button></div></div></div>
-<div class="two"><div><label>Saved Gemini account</label><select id="accountSelect" onchange="chooseAccount()"><option value="">Unlock vault first</option></select></div><div><label>Account name</label><input id="accountName" placeholder="My Gemini" autocomplete="off"></div></div>
+<section class="view" id="view-connect"><div class="card" style="border-color:#5274ac"><h2>🔑 Connect Gemini (optional)</h2>
+<p class="small">Gemini is optional — the FREE sources (Pollinations, Cloudflare, stock photos) need nothing. To use Gemini, enter your own Google AI Studio API key <b>once</b>: it is saved directly on this server (no password, no unlock step) and then used automatically whenever you pick Gemini as the image source. Gemini image generation requires billing / prepaid credits in your Google project. Never share your key with anyone.</p>
+<div class="two"><div><label>Saved Gemini account</label><select id="accountSelect" onchange="chooseAccount()"><option value="">— No account saved yet —</option></select></div><div><label>Account name</label><input id="accountName" placeholder="My Gemini" autocomplete="off"></div></div>
 <div class="two"><div><label>Google AI Studio API Key</label><input id="accountKey" type="password" autocomplete="off" placeholder="Paste API key; never share"></div><div><label>Image model</label><input id="imageModel" value="gemini-3.1-flash-lite-image"></div></div>
 <div class="rowflex" style="margin-top:12px"><button type="button" onclick="saveAccount()">💾 Save Account</button><button type="button" class="danger" onclick="deleteAccount()">Delete</button><button type="button" onclick="testAccount()" style="background:#286a67">Test Gemini Key</button></div>
-<p class="small" id="accountMessage">Vault locked hai. Pehle unlock karein.</p></div></section>
+<p class="small" id="accountMessage">No Gemini account connected yet. Add one above, or just use a FREE image source.</p></div></section>
 
-<section class="view" id="view-console"><div class="card"><h2>🖥 Console — Job Log</h2><label>Job select karein</label><select id="consoleJobSel" onchange="showConsole()"><option value="">— job select karein —</option></select><div class="logbox" id="consoleLog" style="margin-top:12px">Log yahan aye ga.</div></div></section>
+<section class="view" id="view-about"><div class="card"><h2>ℹ️ About / Help</h2>
+<p class="small">This website runs on FREE image sources by default — no sign-in and no paid account is required. You can also optionally connect your own Gemini API key on the Connect Gemini page (saved once, then fully automatic).</p>
+<p class="small"><b>Image sources:</b> Pollinations (free AI images, no key), Cloudflare FLUX (free account + token, entered per job and never saved), Gemini (your connected account), Openverse stock photos (no key), Pixabay and Pexels stock photos (free API key, entered per job and never saved), or your own uploaded pictures.</p>
+<p class="small"><b>How it works:</b> paste a script in the Studio, pick an image source and a free voice, then press Launch. Videos are rendered one at a time in the Queue; finished videos appear under Deliverables.</p>
+<p class="small"><b>Google Flow / Veo:</b> you can download a ready-made Prompt Sheet from the Studio, create clips yourself in Google Flow, and add them under "Veo / Flow scene clips" — the studio will add voiceover and captions and finish the video.</p>
+</div></section>
+
+<section class="view" id="view-console"><div class="card"><h2>🖥 Console — Job Log</h2><label>Select a job</label><select id="consoleJobSel" onchange="showConsole()"><option value="">— select a job —</option></select><div class="logbox" id="consoleLog" style="margin-top:12px">The log will appear here.</div></div></section>
 
 </div></div>
 <script>
 async function api(path,data){const opts={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data||{})};const r=await fetch(path,opts);const x=await r.json();if(!r.ok)throw Error(x.error||'Request failed');return x;}
 function switchView(name){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));document.getElementById('view-'+name).classList.add('active');document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active',b.dataset.nav===name));if(name==='queue')loadJobs();if(name==='deliverables')loadVideos();if(name==='projects')loadProjects();if(name==='assets')fillJobSelects();if(name==='console')fillJobSelects();if(name==='flow')loadFlowProfiles();}
-let vaultReady=false;
 function msg(t){document.getElementById('accountMessage').textContent=t;}
-async function refreshAccounts(selected){try{const r=await fetch('/api/accounts');const x=await r.json();vaultReady=x.unlocked;const sel=document.getElementById('accountSelect');sel.innerHTML='<option value="">-- Select Gemini account --</option>';for(const a of x.accounts){const opt=document.createElement('option');opt.value=a.name;opt.textContent=a.name;sel.appendChild(opt);}if(selected&&x.accounts.some(a=>a.name===selected))sel.value=selected;chooseAccount();if(!x.unlocked)msg('Vault locked. Profiles page par password daal kar unlock karein.');}catch(e){msg(e.message)}}
+async function refreshAccounts(selected){try{const r=await fetch('/api/accounts');const x=await r.json();const sel=document.getElementById('accountSelect');sel.innerHTML='<option value="">-- Select Gemini account --</option>';for(const a of x.accounts){const opt=document.createElement('option');opt.value=a.name;opt.textContent=a.name;sel.appendChild(opt);}if(selected&&x.accounts.some(a=>a.name===selected))sel.value=selected;chooseAccount();}catch(e){msg(e.message)}}
 function chooseAccount(){const sel=document.getElementById('accountSelect');document.getElementById('accountName').value=sel.value;document.getElementById('accountKey').value='';}
-async function unlockVault(){try{const password=document.getElementById('vaultPassword').value;await api('/api/vault/unlock',{password});document.getElementById('vaultPassword').value='';await refreshAccounts();msg('Vault unlocked. Account add/select karein.');}catch(e){msg('Vault error: '+e.message)}}
-async function lockVault(){try{await api('/api/vault/lock',{});await refreshAccounts();msg('Vault locked.');}catch(e){msg(e.message)}}
-async function saveAccount(){const name=document.getElementById('accountName').value.trim(),key=document.getElementById('accountKey').value.trim(),model=document.getElementById('imageModel').value.trim();if(!name){msg('Account name lazmi hai.');return;}if(!key&&document.getElementById('accountSelect').value!==name){msg('Naye account ke liye API key lazmi hai.');return;}try{await api('/api/accounts/save',{name,key,model});document.getElementById('accountKey').value='';await refreshAccounts(name);msg('Encrypted Gemini account saved: '+name);}catch(e){msg('Save error: '+e.message)}}
+async function saveAccount(){const name=document.getElementById('accountName').value.trim(),key=document.getElementById('accountKey').value.trim(),model=document.getElementById('imageModel').value.trim();if(!name){msg('Account name is required.');return;}if(!key&&document.getElementById('accountSelect').value!==name){msg('An API key is required for a new account.');return;}try{await api('/api/accounts/save',{name,key,model});document.getElementById('accountKey').value='';await refreshAccounts(name);msg('Gemini account saved: '+name+' — it will now be used automatically in Gemini mode.');}catch(e){msg('Save error: '+e.message)}}
 async function deleteAccount(){const name=document.getElementById('accountSelect').value;if(!name)return msg('Select an account.');if(!confirm('Delete Gemini account '+name+'?'))return;try{await api('/api/accounts/delete',{name});await refreshAccounts();msg('Account deleted.');}catch(e){msg(e.message)}}
 async function testAccount(){const name=document.getElementById('accountSelect').value;if(!name)return msg('Select an account.');msg('Checking Gemini API key...');try{const x=await api('/api/accounts/test',{name});msg(x.message)}catch(e){msg('Gemini test failed: '+e.message)}}
 let sceneEdits=[];
 function sceneSplit(script){const paras=script.trim().split(/\n\s*\n/).map(s=>s.trim()).filter(Boolean);if(paras.length>1)return paras;const sentences=script.trim().split(/(?<=[.!?।؟])\s+/);let result=[];for(let i=0;i<sentences.length;i+=3)result.push(sentences.slice(i,i+3).join(' '));return result.filter(Boolean);}
 function previewScenes(){const script=document.getElementById('script').value.trim();if(!script){alert('Paste a script first.');return;}const scenes=sceneSplit(script);if(scenes.length>300){alert('Maximum 300 scenes per video.');return;}sceneEdits=scenes.map(n=>({narration:n,prompt:n}));drawTimeline();}
 function resetSceneEdits(){sceneEdits=[];document.getElementById('sceneTimeline').replaceChildren();document.getElementById('sceneInfo').textContent='Scene edits reset.';}
-function drawTimeline(){const root=document.getElementById('sceneTimeline');root.replaceChildren();document.getElementById('sceneInfo').textContent=sceneEdits.length+' scenes · Narration aur visual prompt alag alag edit karein.';sceneEdits.forEach((scene,i)=>{const card=document.createElement('div');card.style.cssText='border:1px solid #344869;border-radius:10px;padding:12px;margin:10px 0;background:#0c172b';const title=document.createElement('strong');title.textContent='Scene '+(i+1);card.appendChild(title);for(const [key,label] of [['narration','Narration (spoken)'],['prompt','AI image / Flow prompt (visual only)']]){const l=document.createElement('label');l.textContent=label;const t=document.createElement('textarea');t.style.minHeight='80px';t.value=scene[key];t.addEventListener('input',()=>{sceneEdits[i][key]=t.value;});card.appendChild(l);card.appendChild(t);}root.appendChild(card);});}
-function downloadFlowPrompts(){const script=document.getElementById('script').value.trim();if(!script){alert('Pehle script paste karein.');return;}const style=document.querySelector('input[name=style]:checked').value;const bible=document.getElementById('characterBible').value.trim();const ratio=document.getElementById('ratio').value;const scenes=sceneEdits.length?sceneEdits.map(s=>s.prompt):sceneSplit(script);let txt='GOOGLE FLOW / VEO PROMPT SHEET\nStyle: '+style+' | Ratio: '+ratio+'\nCharacter: '+bible+'\n\nHar scene ka prompt Flow mein paste karein, clip banayein, download karke Studio mein Veo clips mein usi number par lagayein.\n\n';scenes.forEach((s,i)=>{txt+='--- SCENE '+(i+1)+' ---\n'+style+' style, aspect ratio '+ratio+'. '+(bible?('Consistent character: '+bible+'. '):'')+s+'\n\n';});const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:'text/plain'}));a.download='flow_prompts.txt';a.click();}
+function drawTimeline(){const root=document.getElementById('sceneTimeline');root.replaceChildren();document.getElementById('sceneInfo').textContent=sceneEdits.length+' scenes · Edit the narration and visual prompt separately.';sceneEdits.forEach((scene,i)=>{const card=document.createElement('div');card.style.cssText='border:1px solid #344869;border-radius:10px;padding:12px;margin:10px 0;background:#0c172b';const title=document.createElement('strong');title.textContent='Scene '+(i+1);card.appendChild(title);for(const [key,label] of [['narration','Narration (spoken)'],['prompt','AI image / Flow prompt (visual only)']]){const l=document.createElement('label');l.textContent=label;const t=document.createElement('textarea');t.style.minHeight='80px';t.value=scene[key];t.addEventListener('input',()=>{sceneEdits[i][key]=t.value;});card.appendChild(l);card.appendChild(t);}root.appendChild(card);});}
+function downloadFlowPrompts(){const script=document.getElementById('script').value.trim();if(!script){alert('Paste a script first.');return;}const style=document.querySelector('input[name=style]:checked').value;const bible=document.getElementById('characterBible').value.trim();const ratio=document.getElementById('ratio').value;const scenes=sceneEdits.length?sceneEdits.map(s=>s.prompt):sceneSplit(script);let txt='GOOGLE FLOW / VEO PROMPT SHEET\nStyle: '+style+' | Ratio: '+ratio+'\nCharacter: '+bible+'\n\nPaste the prompt for each scene into Flow, create the clip, download it, and add it in the Studio under Veo clips at the same scene number.\n\n';scenes.forEach((s,i)=>{txt+='--- SCENE '+(i+1)+' ---\n'+style+' style, aspect ratio '+ratio+'. '+(bible?('Consistent character: '+bible+'. '):'')+s+'\n\n';});const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:'text/plain'}));a.download='flow_prompts.txt';a.click();}
 const PRESETS=[
 ['🧍','Stickman Hero','Stickman','Simple stickman hero, thin black stick figure with a round white head and a red scarf. Keep the exact same simple look in every scene, plain colorful backgrounds.'],
 ['🏛','Ancient Roman','3D Animated Pixar style','Marcus, an ancient Roman boy, short brown hair, white tunic with a red sash, leather sandals and a bronze bracelet. Keep his face, hair and clothes the same in every scene.'],
@@ -323,45 +298,47 @@ const q=(document.getElementById('voiceSearch').value||'').toLowerCase();const s
 let list=ALL_VOICES.filter(v=>{if(currentVoiceFilter==='Fav'&&!favs().includes(v.short))return false;if(currentVoiceFilter!=='All'&&currentVoiceFilter!=='Fav'&&!(v.name+' '+v.locale).toLowerCase().includes(currentVoiceFilter.toLowerCase()))return false;if(q&&!(v.name+' '+v.locale+' '+v.gender+' '+v.short).toLowerCase().includes(q))return false;return true;});
 list.slice(0,600).forEach(v=>{const o=document.createElement('option');o.value=v.short;o.textContent=(favs().includes(v.short)?'⭐ ':'')+v.locale+' · '+v.name.replace(/^Microsoft\s*/,'')+' ('+v.gender+')';sel.appendChild(o);});
 if(cur&&[...sel.options].some(o=>o.value===cur))sel.value=cur;
-document.getElementById('voiceMsg').textContent=list.length+' voices mili (kul '+ALL_VOICES.length+'). ⭐ Favourite dabane se awaaz Favourites mein ajati hai.';}
+document.getElementById('voiceMsg').textContent=list.length+' voices found (total '+ALL_VOICES.length+'). Press the ⭐ Favourite button to add a voice to Favourites.';}
 async function loadVoices(){try{const r=await fetch('/api/voices');const x=await r.json();ALL_VOICES=x.voices||[];}catch(e){ALL_VOICES=[];}
 if(!ALL_VOICES.length){ALL_VOICES=[{short:'en-US-JennyNeural',locale:'en-US',gender:'Female',name:'Jenny'}];}
 renderVoices('All');}
 function toggleFav(){const v=document.getElementById('voice').value;if(!v)return;let f=favs();if(f.includes(v))f=f.filter(x=>x!==v);else f.push(v);localStorage.setItem('favVoices',JSON.stringify(f));renderVoices(currentVoiceFilter);}
 let previewAudio=null;
-async function previewVoice(){const v=document.getElementById('voice').value;if(!v)return;const m=document.getElementById('voiceMsg');m.textContent='Preview ban raha hai...';try{const x=await api('/api/voice-preview',{voice:v});if(previewAudio)previewAudio.pause();previewAudio=new Audio(x.url);previewAudio.play();m.textContent='Preview chal raha hai.';}catch(e){m.textContent='Preview error: '+e.message;}}
+async function previewVoice(){const v=document.getElementById('voice').value;if(!v)return;const m=document.getElementById('voiceMsg');m.textContent='Generating preview...';try{const x=await api('/api/voice-preview',{voice:v});if(previewAudio)previewAudio.pause();previewAudio=new Audio(x.url);previewAudio.play();m.textContent='Playing preview.';}catch(e){m.textContent='Preview error: '+e.message;}}
 function collectSettings(){return{script:document.getElementById('script').value,characterBible:document.getElementById('characterBible').value,style:document.querySelector('input[name=style]:checked').value,voice:document.getElementById('voice').value,ratio:document.getElementById('ratio').value,speed:document.getElementById('speed').value,imageMode:document.getElementById('imageMode').value,transitions:document.getElementById('transitions').value,motion:document.getElementById('motion').value,captionStyle:document.getElementById('captionStyle').value,captions:document.getElementById('captions').checked};}
 function applySettings(s){if(!s)return;document.getElementById('script').value=s.script||'';document.getElementById('characterBible').value=s.characterBible||'';const r=document.querySelector('input[name=style][value="'+s.style+'"]');if(r)r.checked=true;if(s.voice){const sel=document.getElementById('voice');const o=document.createElement('option');o.value=s.voice;o.textContent=s.voice;sel.appendChild(o);sel.value=s.voice;}
-document.getElementById('ratio').value=s.ratio||'9:16';document.getElementById('speed').value=s.speed||'+0%';document.getElementById('imageMode').value=s.imageMode||'pollinations';document.getElementById('transitions').value=s.transitions||'mixed';document.getElementById('motion').value=s.motion||'pan';document.getElementById('captionStyle').value=s.captionStyle||'bold';document.getElementById('captions').checked=s.captions!==false;sceneEdits=[];document.getElementById('sceneTimeline').replaceChildren();}
-async function saveProject(){const name=document.getElementById('projectName').value.trim();if(!name){alert('Project name likhein.');return;}const sel=document.getElementById('scriptSelect');try{const x=await api('/api/projects/save',{id:sel.value||'',name,data:collectSettings()});document.getElementById('projectMsg').textContent='Project save ho gaya: '+name;await loadProjects();document.getElementById('scriptSelect').value=x.id;}catch(e){document.getElementById('projectMsg').textContent='Save error: '+e.message;}}
+document.getElementById('ratio').value=s.ratio||'9:16';document.getElementById('speed').value=s.speed||'+0%';const imSel=document.getElementById('imageMode');imSel.value=s.imageMode||'pollinations';if(!imSel.value)imSel.value='pollinations';document.getElementById('transitions').value=s.transitions||'mixed';document.getElementById('motion').value=s.motion||'pan';document.getElementById('captionStyle').value=s.captionStyle||'bold';document.getElementById('captions').checked=s.captions!==false;sceneEdits=[];document.getElementById('sceneTimeline').replaceChildren();}
+async function saveProject(){const name=document.getElementById('projectName').value.trim();if(!name){alert('Enter a project name.');return;}const sel=document.getElementById('scriptSelect');try{const x=await api('/api/projects/save',{id:sel.value||'',name,data:collectSettings()});document.getElementById('projectMsg').textContent='Project saved: '+name;await loadProjects();document.getElementById('scriptSelect').value=x.id;}catch(e){document.getElementById('projectMsg').textContent='Save error: '+e.message;}}
 async function loadProjects(){try{const r=await fetch('/api/projects');const x=await r.json();const sel=document.getElementById('scriptSelect');const cur=sel.value;sel.innerHTML='<option value="">— Choose a project —</option>';x.projects.forEach(p=>{const o=document.createElement('option');o.value=p.id;o.textContent=p.name;sel.appendChild(o);});if(cur)sel.value=cur;
 const badge=document.getElementById('draftCount');badge.style.display=x.projects.length?'inline-block':'none';badge.textContent=x.projects.length;
-const root=document.getElementById('projectsList');root.innerHTML=x.projects.length?'':'<p class="small">Koi saved project nahi.</p>';
+const root=document.getElementById('projectsList');root.innerHTML=x.projects.length?'':'<p class="small">No saved projects.</p>';
 x.projects.forEach(p=>{const d=document.createElement('div');d.className='item';d.innerHTML='<b></b> <span class="small"></span>';d.querySelector('b').textContent=p.name;d.querySelector('span').textContent='· script '+p.chars+' characters · '+new Date(p.updated*1000).toLocaleString();const b=document.createElement('button');b.textContent='Open in Studio';b.style.marginLeft='10px';b.onclick=async()=>{await applyProject(p.id);switchView('studio');};d.appendChild(b);root.appendChild(d);});}catch(e){}}
-async function applyProject(id){const r=await fetch('/api/projects/'+id);const x=await r.json();if(x.project){document.getElementById('projectName').value=x.project.name;applySettings(x.project.data);document.getElementById('projectMsg').textContent='Project load ho gaya: '+x.project.name;}}
+async function applyProject(id){const r=await fetch('/api/projects/'+id);const x=await r.json();if(x.project){document.getElementById('projectName').value=x.project.name;applySettings(x.project.data);document.getElementById('projectMsg').textContent='Project loaded: '+x.project.name;}}
 async function applySelectedProject(){const id=document.getElementById('scriptSelect').value;if(id)applyProject(id);}
-async function deleteSelectedProject(){const id=document.getElementById('scriptSelect').value;if(!id){alert('Pehle project select karein.');return;}if(!confirm('Yeh project delete kar dein?'))return;await api('/api/projects/delete',{id});document.getElementById('scriptSelect').value='';await loadProjects();document.getElementById('projectMsg').textContent='Project delete ho gaya.';}
-async function writeScript(){const topic=document.getElementById('writerTopic').value.trim();if(!topic){alert('Topic likhein.');return;}const btn=event.target;btn.disabled=true;btn.textContent='✍ Likha ja raha hai...';try{const x=await api('/api/writer',{topic,language:document.getElementById('writerLang').value});document.getElementById('script').value=x.script;sceneEdits=[];document.getElementById('projectMsg').textContent='AI Writer ne script bana di — Preview Scenes karke check kar lein.';}catch(e){alert(e.message);}btn.disabled=false;btn.textContent='✍ FREE AI Writer — Script Banao';}
-async function loadFlowProfiles(){try{const r=await fetch('/api/flow/profiles');const x=await r.json();const root=document.getElementById('flowList');root.innerHTML=x.profiles.length?'':'<p class="small">Koi Flow profile save nahi.</p>';x.profiles.forEach(p=>{const d=document.createElement('div');d.className='item';const b=document.createElement('b');b.textContent=p.name;d.appendChild(b);const s=document.createElement('span');s.className='small';s.textContent=' '+(p.note||'');d.appendChild(s);const open=document.createElement('button');open.textContent='🌐 Open & Login';open.style.margin='8px 6px 0 0';open.onclick=openFlow;const del=document.createElement('button');del.textContent='Delete';del.className='danger';del.onclick=async()=>{await api('/api/flow/profiles/delete',{id:p.id});loadFlowProfiles();};d.appendChild(document.createElement('br'));d.appendChild(open);d.appendChild(del);root.appendChild(d);});}catch(e){}}
-async function saveFlowProfile(){const name=document.getElementById('flowName').value.trim();if(!name){alert('Profile name likhein.');return;}try{await api('/api/flow/profiles/save',{name,note:document.getElementById('flowNote').value.trim()});document.getElementById('flowMsg').textContent='Profile save ho gaya: '+name;document.getElementById('flowName').value='';document.getElementById('flowNote').value='';loadFlowProfiles();}catch(e){alert(e.message);}}
-async function openFlow(){try{await api('/api/flow/open',{});document.getElementById('flowMsg').textContent='Google Flow is PC ke browser mein khul raha hai — wahan apne Google account se login karein. (Mobile se khola hai to Flow link phone par nahi, PC par khule ga.)';}catch(e){alert(e.message+' — Khud browser mein labs.google/fx/tools/flow khol lein.');}}
+async function deleteSelectedProject(){const id=document.getElementById('scriptSelect').value;if(!id){alert('Select a project first.');return;}if(!confirm('Delete this project?'))return;await api('/api/projects/delete',{id});document.getElementById('scriptSelect').value='';await loadProjects();document.getElementById('projectMsg').textContent='Project deleted.';}
+async function writeScript(){const topic=document.getElementById('writerTopic').value.trim();if(!topic){alert('Enter a topic.');return;}const btn=event.target;btn.disabled=true;btn.textContent='✍ Writing...';try{const x=await api('/api/writer',{topic,language:document.getElementById('writerLang').value});document.getElementById('script').value=x.script;sceneEdits=[];document.getElementById('projectMsg').textContent='The AI Writer created the script — use Preview Scenes to check it.';}catch(e){alert(e.message);}btn.disabled=false;btn.textContent='✍ FREE AI Writer — Create Script';}
+async function loadFlowProfiles(){try{const r=await fetch('/api/flow/profiles');const x=await r.json();const root=document.getElementById('flowList');root.innerHTML=x.profiles.length?'':'<p class="small">No saved Flow profile.</p>';x.profiles.forEach(p=>{const d=document.createElement('div');d.className='item';const b=document.createElement('b');b.textContent=p.name;d.appendChild(b);const s=document.createElement('span');s.className='small';s.textContent=' '+(p.note||'');d.appendChild(s);const open=document.createElement('button');open.textContent='🌐 Open & Login';open.style.margin='8px 6px 0 0';open.onclick=openFlow;const del=document.createElement('button');del.textContent='Delete';del.className='danger';del.onclick=async()=>{await api('/api/flow/profiles/delete',{id:p.id});loadFlowProfiles();};d.appendChild(document.createElement('br'));d.appendChild(open);d.appendChild(del);root.appendChild(d);});}catch(e){}}
+async function saveFlowProfile(){const name=document.getElementById('flowName').value.trim();if(!name){alert('Enter a profile name.');return;}try{await api('/api/flow/profiles/save',{name,note:document.getElementById('flowNote').value.trim()});document.getElementById('flowMsg').textContent='Profile saved: '+name;document.getElementById('flowName').value='';document.getElementById('flowNote').value='';loadFlowProfiles();}catch(e){alert(e.message);}}
+async function openFlow(){try{await api('/api/flow/open',{});document.getElementById('flowMsg').textContent='Google Flow is opening in the browser on this PC — sign in there with your Google account. (If you opened this from mobile, the Flow link will open on the PC, not on the phone.)';}catch(e){alert(e.message+' — Open labs.google/fx/tools/flow in a browser yourself.');}}
 async function loadJobs(){try{const r=await fetch('/api/jobs');const x=await r.json();const active=x.jobs.filter(j=>j.state==='queued'||j.state==='running').length;const badge=document.getElementById('queueCount');badge.style.display=active?'inline-block':'none';badge.textContent=active;
-const root=document.getElementById('queueList');if(!root)return;root.innerHTML=x.jobs.length?'':'<p class="small">Koi job nahi.</p>';
+const root=document.getElementById('queueList');if(!root)return;root.innerHTML=x.jobs.length?'':'<p class="small">No jobs yet.</p>';
 x.jobs.forEach(j=>{const d=document.createElement('div');d.className='item';d.innerHTML='<b></b> <span class="pill '+j.state+'">'+j.state+'</span> <span class="small"></span>';d.querySelector('b').textContent=j.name||'Video job';d.querySelector('.small').textContent='· '+j.progress+'% · '+(j.message||'');if(j.url){const a=document.createElement('a');a.href=j.url;a.textContent='⬇ Download MP4';a.style.marginLeft='10px';d.appendChild(a);}const c=document.createElement('button');c.textContent='Console';c.className='ghost';c.style.marginLeft='8px';c.onclick=()=>{switchView('console');document.getElementById('consoleJobSel').value=j.job;showConsole();};d.appendChild(c);root.appendChild(d);});}catch(e){}}
-async function fillJobSelects(){try{const r=await fetch('/api/jobs');const x=await r.json();for(const id of ['assetsJobSel','consoleJobSel']){const sel=document.getElementById(id);const cur=sel.value;sel.innerHTML='<option value="">— job select karein —</option>';x.jobs.forEach(j=>{const o=document.createElement('option');o.value=j.job;o.textContent=(j.name||j.job.slice(0,8))+' · '+j.state;sel.appendChild(o);});if(cur)sel.value=cur;}}catch(e){}}
-async function loadAssets(){const job=document.getElementById('assetsJobSel').value;const grid=document.getElementById('assetsGrid');grid.innerHTML='';if(!job)return;try{const r=await fetch('/api/assets/'+job);const x=await r.json();const frames=x.files.filter(f=>f.name.startsWith('frame'));const show=frames.length?frames:x.files;show.forEach(f=>{const img=document.createElement('img');img.src=f.url;img.title=f.name;grid.appendChild(img);});if(!show.length)grid.innerHTML='<p class="small">Is job ki images abhi nahi bani.</p>';}catch(e){}}
-async function loadVideos(){try{const r=await fetch('/api/videos');const x=await r.json();const root=document.getElementById('videosList');root.innerHTML=x.videos.length?'':'<p class="small">Abhi koi video tayyar nahi.</p>';x.videos.forEach(v=>{const d=document.createElement('div');d.className='item';d.innerHTML='<b></b> <span class="small"></span> ';d.querySelector('b').textContent=v.name;d.querySelector('.small').textContent='· '+v.size_mb+' MB · '+new Date(v.mtime*1000).toLocaleString();const a=document.createElement('a');a.href=v.url;a.textContent='⬇ Download / Play';d.appendChild(a);root.appendChild(d);});}catch(e){}}
-async function showConsole(){const job=document.getElementById('consoleJobSel').value;const box=document.getElementById('consoleLog');if(!job){box.textContent='Job select karein.';return;}try{const r=await fetch('/api/status/'+job);const x=await r.json();box.textContent=(x.log||[]).join('\n')||x.message||'—';}catch(e){box.textContent='Log nahi mila.';}}
-async function verifySystem(){const el=document.getElementById('verifyResult');el.textContent='Check ho raha hai...';try{const r=await fetch('/api/verify');const x=await r.json();el.innerHTML=x.checks.map(c=>(c.ok?'✔ ':'✘ ')+c.name+' — '+c.detail).join('<br>');}catch(e){el.textContent='Verify error: '+e.message;}}
+async function fillJobSelects(){try{const r=await fetch('/api/jobs');const x=await r.json();for(const id of ['assetsJobSel','consoleJobSel']){const sel=document.getElementById(id);const cur=sel.value;sel.innerHTML='<option value="">— select a job —</option>';x.jobs.forEach(j=>{const o=document.createElement('option');o.value=j.job;o.textContent=(j.name||j.job.slice(0,8))+' · '+j.state;sel.appendChild(o);});if(cur)sel.value=cur;}}catch(e){}}
+async function loadAssets(){const job=document.getElementById('assetsJobSel').value;const grid=document.getElementById('assetsGrid');grid.innerHTML='';if(!job)return;try{const r=await fetch('/api/assets/'+job);const x=await r.json();const frames=x.files.filter(f=>f.name.startsWith('frame'));const show=frames.length?frames:x.files;show.forEach(f=>{const img=document.createElement('img');img.src=f.url;img.title=f.name;grid.appendChild(img);});if(!show.length)grid.innerHTML='<p class="small">No images have been created for this job yet.</p>';}catch(e){}}
+async function loadVideos(){try{const r=await fetch('/api/videos');const x=await r.json();const root=document.getElementById('videosList');root.innerHTML=x.videos.length?'':'<p class="small">No finished video yet.</p>';x.videos.forEach(v=>{const d=document.createElement('div');d.className='item';d.innerHTML='<b></b> <span class="small"></span> ';d.querySelector('b').textContent=v.name;d.querySelector('.small').textContent='· '+v.size_mb+' MB · '+new Date(v.mtime*1000).toLocaleString();const a=document.createElement('a');a.href=v.url;a.textContent='⬇ Download / Play';d.appendChild(a);root.appendChild(d);});}catch(e){}}
+async function showConsole(){const job=document.getElementById('consoleJobSel').value;const box=document.getElementById('consoleLog');if(!job){box.textContent='Select a job.';return;}try{const r=await fetch('/api/status/'+job);const x=await r.json();box.textContent=(x.log||[]).join('\n')||x.message||'—';}catch(e){box.textContent='Log not found.';}}
+async function verifySystem(){const el=document.getElementById('verifyResult');el.textContent='Checking...';try{const r=await fetch('/api/verify');const x=await r.json();el.innerHTML=x.checks.map(c=>(c.ok?'✔ ':'✘ ')+c.name+' — '+c.detail).join('<br>');}catch(e){el.textContent='Verify error: '+e.message;}}
 let timer=null;
 async function launch(queuedOnly){let script=document.getElementById('script').value.trim();if(!script){alert('Please paste your script first.');return;}
 const mode=document.getElementById('imageMode').value;
-if(mode==='gemini'&&!document.getElementById('accountSelect').value){alert('Gemini mode: pehle Profiles page par vault unlock karke account select karein — ya FREE Pollinations mode use karein.');switchView('profiles');return;}
-if(mode==='cloudflare'&&(!document.getElementById('cfAccount').value.trim()||!document.getElementById('cfToken').value.trim())){alert('Cloudflare mode ke liye Account ID + Token bharein.');return;}
-let b=document.getElementById('launch');b.disabled=true;document.getElementById('result').innerHTML='';document.getElementById('status').textContent=queuedOnly?'Queue mein add ho raha hai...':'Starting...';document.getElementById('progress').value=0;
-try{let r=await fetch('/api/launch',{method:'POST',body:(()=>{let f=new FormData();let s=collectSettings();let vals={script:s.script,style:s.style,voice:s.voice,ratio:s.ratio,speed:s.speed,captions:s.captions,transitions:s.transitions,motion:s.motion,captionStyle:s.captionStyle,imageMode:s.imageMode,accountName:document.getElementById('accountSelect').value,cfAccount:document.getElementById('cfAccount').value,cfToken:document.getElementById('cfToken').value,characterBible:s.characterBible,projectName:document.getElementById('projectName').value,sceneEdits:sceneEdits.length?JSON.stringify(sceneEdits):''};for(let [k,v] of Object.entries(vals))f.append(k,v);for(let file of document.getElementById('uploads').files)f.append('images',file);for(let file of document.getElementById('sceneClips').files)f.append('sceneclips',file);const ov=document.getElementById('ownVoice').files[0];if(ov)f.append('voiceover',ov);const mf=document.getElementById('musicFile').files[0];if(mf)f.append('musicfile',mf);return f;})()});
+if(mode==='gemini'&&!document.getElementById('accountSelect').value){alert('Gemini mode: connect and select a Gemini account on the Connect Gemini page — or use one of the FREE sources (Pollinations / Openverse).');switchView('connect');return;}
+if(mode==='pixabay'&&!document.getElementById('pixabayKey').value.trim()){alert('Pixabay mode: enter your free Pixabay API key in the Image Source section — or use Openverse stock photos (no key needed).');return;}
+if(mode==='pexels'&&!document.getElementById('pexelsKey').value.trim()){alert('Pexels mode: enter your free Pexels API key in the Image Source section — or use Openverse stock photos (no key needed).');return;}
+if(mode==='cloudflare'&&(!document.getElementById('cfAccount').value.trim()||!document.getElementById('cfToken').value.trim())){alert('For Cloudflare mode, enter the Account ID and Token.');return;}
+let b=document.getElementById('launch');b.disabled=true;document.getElementById('result').innerHTML='';document.getElementById('status').textContent=queuedOnly?'Adding to queue...':'Starting...';document.getElementById('progress').value=0;
+try{let r=await fetch('/api/launch',{method:'POST',body:(()=>{let f=new FormData();let s=collectSettings();let vals={script:s.script,style:s.style,voice:s.voice,ratio:s.ratio,speed:s.speed,captions:s.captions,transitions:s.transitions,motion:s.motion,captionStyle:s.captionStyle,imageMode:s.imageMode,accountName:document.getElementById('accountSelect').value,cfAccount:document.getElementById('cfAccount').value,cfToken:document.getElementById('cfToken').value,pixabayKey:document.getElementById('pixabayKey').value,pexelsKey:document.getElementById('pexelsKey').value,characterBible:s.characterBible,projectName:document.getElementById('projectName').value,sceneEdits:sceneEdits.length?JSON.stringify(sceneEdits):''};for(let [k,v] of Object.entries(vals))f.append(k,v);for(let file of document.getElementById('uploads').files)f.append('images',file);for(let file of document.getElementById('sceneClips').files)f.append('sceneclips',file);const ov=document.getElementById('ownVoice').files[0];if(ov)f.append('voiceover',ov);const mf=document.getElementById('musicFile').files[0];if(mf)f.append('musicfile',mf);return f;})()});
 let x=await r.json();if(!r.ok)throw Error(x.error||'Failed to start');
-if(queuedOnly){b.disabled=false;document.getElementById('status').textContent='Queue mein add ho gaya ✔ — Queue page par halat dekhein.';loadJobs();return;}
+if(queuedOnly){b.disabled=false;document.getElementById('status').textContent='Added to the queue ✔ — check the status on the Queue page.';loadJobs();return;}
 clearInterval(timer);timer=setInterval(async()=>{try{let q=await fetch('/api/status/'+x.job);let j=await q.json();document.getElementById('status').textContent=j.message;document.getElementById('progress').value=j.progress;loadJobs();
 if(j.state==='done'){clearInterval(timer);b.disabled=false;document.getElementById('result').innerHTML='<p><a href="'+j.url+'" download>⬇ Download Final MP4</a></p><video controls src="'+j.url+'"></video>';loadVideos();}
 if(j.state==='error'){clearInterval(timer);b.disabled=false;document.getElementById('status').textContent='Error: '+j.message;}}catch(e){clearInterval(timer);b.disabled=false;}},1200);
@@ -475,7 +452,7 @@ def _image_prompt(scene, style, ratio, continuity, character_bible=""):
 
 
 def _caption_overlay(text, ratio, caption_style, output):
-    """Transparent PNG with only the caption block - Veo clips par overlay ke liye."""
+    """Transparent PNG with only the caption block - for overlaying on Veo clips."""
     w, h = dimensions(ratio)
     img = Image.new('RGBA', (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(img, 'RGBA')
@@ -558,8 +535,8 @@ def generate_pollinations_image(scene, style, ratio, output, continuity, charact
             last_error = exc
             if attempt < len(urls) - 1:
                 time.sleep(10 * (attempt + 1))
-    raise RuntimeError('Pollinations FREE image nahi ban saka (4 koshishon ke baad). '
-                       f'Asal error: {str(last_error)[:250]}')
+    raise RuntimeError('Pollinations FREE image could not be created (after 4 attempts). '
+                       f'Original error: {str(last_error)[:250]}')
 
 
 def generate_cloudflare_image(account_id, token, scene, style, ratio, output, continuity, character_bible="", seed=42):
@@ -588,15 +565,15 @@ def generate_cloudflare_image(account_id, token, scene, style, ratio, output, co
         except Exception:
             pass
         if exc.code in (401, 403):
-            raise RuntimeError('Cloudflare TOKEN/Account ID ghalat lag raha hai (HTTP ' + str(exc.code) + '). '
-                               'Cloudflare dashboard se Account ID aur Workers AI permission wala API Token dobara check karein. ' + detail) from exc
-        raise RuntimeError(f'Cloudflare FREE image error (HTTP {exc.code}). Roz ke free Neurons khatam ho sakte hain '
-                           '(har roz 10,000 free milte hain, kal dobara try karein) ya service busy hai. ' + detail) from exc
+            raise RuntimeError('Cloudflare TOKEN/Account ID appears to be incorrect (HTTP ' + str(exc.code) + '). '
+                               'Check the Account ID and the API Token with Workers AI permission again in the Cloudflare dashboard. ' + detail) from exc
+        raise RuntimeError(f'Cloudflare FREE image error (HTTP {exc.code}). Your daily free Neurons may have run out '
+                           '(you receive 10,000 free Neurons every day; please try again tomorrow), or the service may be busy. ' + detail) from exc
     image_b64 = ((data.get('result') or {}).get('image') if isinstance(data, dict) else None)
     if not image_b64:
         errors = data.get('errors') if isinstance(data, dict) else None
-        raise RuntimeError('Cloudflare ne image return nahi ki. Jawab: ' + str(errors or data)[:300]
-                           + ' - Aksar wajah: Account ID/token ghalat, ya roz ke free Neurons khatam.')
+        raise RuntimeError('Cloudflare did not return an image. Response: ' + str(errors or data)[:300]
+                           + ' - Common causes: an incorrect Account ID/token, or the daily free Neurons have run out.')
     with Image.open(io.BytesIO(base64.b64decode(image_b64))) as img:
         img.convert('RGB').save(output)
 
@@ -657,12 +634,129 @@ def generate_gemini_image(client, model, scene, style, ratio, output, continuity
             texts.append(str(txt).strip())
     detail = ' '.join(texts)[:400]
     raise RuntimeError(
-        'Gemini ne koi image return NAHI ki.'
+        'Gemini did NOT return any image.'
         + (f' Finish reason: {", ".join(reasons)}.' if reasons else '')
-        + (f' Model ka text reply: {detail}.' if detail else '')
-        + ' Aksar wajah: (1) key wale project mein billing enable nahi - image models free tier par nahi milte, '
-        + f'(2) model purana/band hai - {DEFAULT_IMAGE_MODEL} try karein, (3) prompt safety block. '
-        + 'Pehle "Test Gemini Key" se check karein, phir 1 choti script se try karein.')
+        + (f' Model text reply: {detail}.' if detail else '')
+        + ' Common causes: (1) billing is not enabled in the project that owns the key - image models are not available on the free tier, '
+        + f'(2) the model is old/discontinued - try {DEFAULT_IMAGE_MODEL}, (3) a prompt safety block. '
+        + 'First check with "Test Gemini Key", then try again with one short script.')
+
+
+# --- FREE stock photos (Openverse / Pixabay / Pexels) ------------------------
+_STOCK_STOPWORDS = {
+    'the', 'and', 'for', 'with', 'from', 'that', 'this', 'then', 'than', 'but',
+    'was', 'were', 'are', 'has', 'have', 'had', 'will', 'would', 'can', 'could',
+    'there', 'here', 'into', 'out', 'over', 'very', 'just', 'one', 'scene',
+    'shows', 'showing', 'show', 'image', 'photo', 'picture', 'video',
+    'illustration', 'style', 'detailed', 'beautiful', 'create', 'original',
+    'short', 'story', 'frame', 'aspect', 'ratio', 'text', 'keep', 'same',
+    'every', 'his', 'her', 'its', 'their', 'they', 'she', 'him', 'them',
+    'through', 'about', 'when', 'what', 'who', 'all', 'any',
+}
+
+
+def _stock_keywords(text, max_words=8):
+    """Turn a scene prompt into a short stock-search query (meaningful words only)."""
+    picked, seen = [], set()
+    for word in re.findall(r"[A-Za-z][A-Za-z'-]{2,}", str(text or '')):
+        low = word.lower()
+        if low in _STOCK_STOPWORDS or low in seen:
+            continue
+        seen.add(low)
+        picked.append(word)
+        if len(picked) >= max_words:
+            break
+    return ' '.join(picked) if picked else 'nature landscape'
+
+
+def _stock_orientation(ratio, provider):
+    if provider == 'pixabay':
+        return {'9:16': 'vertical', '16:9': 'horizontal'}.get(ratio, 'all')
+    return {'9:16': 'portrait', '16:9': 'landscape', '1:1': 'square'}.get(ratio, 'landscape')
+
+
+def _stock_search_urls(provider, api_key, query, ratio):
+    """One search request -> list of direct image URLs (possibly empty)."""
+    headers = {'User-Agent': 'AI-Video-Studio-Pro/1.0'}
+    if provider == 'pixabay':
+        params = {'key': api_key, 'q': query, 'image_type': 'photo', 'per_page': 5,
+                  'orientation': _stock_orientation(ratio, provider), 'safesearch': 'true'}
+        url = 'https://pixabay.com/api/?' + urllib.parse.urlencode(params)
+    elif provider == 'pexels':
+        params = {'query': query, 'per_page': 5,
+                  'orientation': _stock_orientation(ratio, provider)}
+        url = 'https://api.pexels.com/v1/search?' + urllib.parse.urlencode(params)
+        headers['Authorization'] = api_key
+    else:  # openverse - no key required
+        params = {'q': query, 'page_size': 5, 'license_type': 'all'}
+        url = 'https://api.openverse.org/v1/images/?' + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        data = json.loads(resp.read().decode('utf-8'))
+    urls = []
+    if provider == 'pixabay':
+        for hit in data.get('hits') or []:
+            u = hit.get('largeImageURL') or hit.get('webformatURL')
+            if u:
+                urls.append(u)
+    elif provider == 'pexels':
+        for photo in data.get('photos') or []:
+            src = photo.get('src') or {}
+            u = src.get('large2x') or src.get('large') or src.get('original')
+            if u:
+                urls.append(u)
+    else:
+        for item in data.get('results') or []:
+            u = item.get('url') or item.get('foreign_landing_url')
+            if u:
+                urls.append(u)
+    return urls
+
+
+def _download_image_url(url, output):
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (AI Video Studio Pro)'})
+    with urllib.request.urlopen(req, timeout=90) as resp:
+        data = resp.read()
+    with Image.open(io.BytesIO(data)) as img:  # raises if the reply is not an image
+        img.convert('RGB').save(output)
+
+
+def generate_stock_photo(provider, api_key, scene_prompt, ratio, output, seed=42):
+    """Fetch ONE free stock photo for a scene.
+
+    Openverse needs no key; Pixabay/Pexels use a free key that is held only
+    in memory for this job and never saved to disk. The search query is
+    derived from the scene's image prompt; if a search finds nothing, retry
+    once with a shorter query, then raise so the caller can fall back to a
+    placeholder card (same behaviour as Pollinations failures).
+    """
+    label = {'openverse': 'Openverse', 'pixabay': 'Pixabay', 'pexels': 'Pexels'}[provider]
+    try:
+        query = _stock_keywords(scene_prompt, 8)
+        urls = _stock_search_urls(provider, api_key, query, ratio)
+        if not urls:
+            short = ' '.join(query.split()[:3])
+            if short and short != query:
+                urls = _stock_search_urls(provider, api_key, short, ratio)
+        if not urls:
+            raise RuntimeError(f'{label} found no photo for this scene.')
+        # Prefer a seed-offset result so different scenes do not all reuse the
+        # same first hit; on failure walk the remaining results in order.
+        start = int(seed) % len(urls)
+        ordered = [urls[(start + k) % len(urls)] for k in range(len(urls))]
+        last_error = None
+        for u in ordered[:3]:
+            try:
+                _download_image_url(u, output)
+                return
+            except Exception as exc:
+                last_error = exc
+        raise RuntimeError(f'{label} photo download failed: {str(last_error)[:200]}')
+    except Exception as exc:
+        message = str(exc)
+        if api_key:
+            message = message.replace(str(api_key), '[REDACTED]')
+        raise RuntimeError(f'{label} stock photo error: {message[:300]}') from exc
 
 
 def probe_duration(path):
@@ -681,15 +775,19 @@ def run_job(job, data):
         if edits:
             scenes = [entry['narration'] for entry in edits]
         if not scenes: raise ValueError('Please enter a script.')
-        if len(scenes) > MAX_SCENES: raise ValueError(f'Is version mein aik video mein max {MAX_SCENES} scenes hain.')
+        if len(scenes) > MAX_SCENES: raise ValueError(f'This version allows a maximum of {MAX_SCENES} scenes in one video.')
         mode = data.get('imageMode', 'pollinations')
         if mode == 'gemini' and not data.get('apiKey'):
-            raise ValueError('Enter your Gemini API key for AI image mode, or select uploaded pictures.')
+            raise ValueError('Select a connected Gemini account first, or choose one of the free image sources.')
         if mode == 'cloudflare' and not (data.get('cfAccount') and data.get('cfToken')):
-            raise ValueError('Cloudflare FREE mode ke liye Account ID aur API Token lazmi hain (Image Source wale hisse mein bharein), ya Pollinations FREE mode select karein.')
+            raise ValueError('Account ID and API Token are required for Cloudflare FREE mode (enter them in the Image Source section), or select Pollinations FREE mode.')
+        if mode == 'pixabay' and not data.get('pixabayKey'):
+            raise ValueError('A free Pixabay API key is required for Pixabay stock photos (enter it in the Image Source section), or select Openverse stock photos (no key needed).')
+        if mode == 'pexels' and not data.get('pexelsKey'):
+            raise ValueError('A free Pexels API key is required for Pexels stock photos (enter it in the Image Source section), or select Openverse stock photos (no key needed).')
         uploads = data.get('uploads', [])
         if mode == 'upload' and not uploads and not data.get('clips'):
-            raise ValueError('Upload at least one picture or select Gemini AI images.')
+            raise ValueError('Upload at least one picture, or choose one of the free image sources.')
         work = OUT / job
         work.mkdir(exist_ok=True)
         audio = work / 'voice.mp3'
@@ -701,10 +799,10 @@ def run_job(job, data):
             weights = [max(1,len(s)) for s in scenes]
             durations = [total_duration*w/sum(weights) for w in weights]
         else:
-            # Per-scene TTS: har scene ki awaaz alag banti hai. Is se (1) bohat
-            # lambi script par bhi koi duration limit nahi - Edge TTS choti
-            # requests fail nahi karta, (2) har scene ka time EXACT milta hai,
-            # tasveer aur awaaz ka sync behtar ho jata hai.
+            # Per-scene TTS: the voice for each scene is generated separately. This means (1) even for very
+            # long scripts there is no duration limit - Edge TTS does not fail on small
+            # requests, (2) the timing of each scene is EXACT, and
+            # picture and voice synchronization is improved.
             update(job, 5, 'Generating voiceover (scene by scene)...')
             voice_name = _resolve_voice(data.get('voice'))
             parts = []
@@ -729,7 +827,7 @@ def run_job(job, data):
             p = subprocess.run(['ffmpeg','-y','-hide_banner','-loglevel','error','-f','concat','-safe','0',
                                 '-i',str(concat_list),'-c:a','aac','-b:a','128k',str(audio)],
                                capture_output=True, text=True, timeout=1800)
-            if p.returncode: raise RuntimeError('Voiceover jorne mein FFmpeg error: '+p.stderr[-600:])
+            if p.returncode: raise RuntimeError('FFmpeg error while joining the voiceover: '+p.stderr[-600:])
             total_duration = sum(durations)
             if total_duration <= 0: raise RuntimeError('Voiceover is empty.')
         # Reuse one Gemini client per job to reduce connection overhead.
@@ -738,7 +836,7 @@ def run_job(job, data):
             from google import genai
             client = genai.Client(api_key=data['apiKey'])
         # All images are generated before encoding. Gemini/Cloudflare errors stay
-        # explicit; a failed FREE Pollinations scene falls back to a local card
+        # explicit; a failed FREE image/stock scene falls back to a local card
         # (counted in the final message) so one flaky reply can't kill the video.
         placeholder_scenes = []
         veo_clips = data.get('clips', [])
@@ -748,7 +846,7 @@ def run_job(job, data):
             visual_prompt = edits[i]['prompt'] if edits else scene
             update(job, 10+int(45*i/len(scenes)), f'Preparing picture {i+1}/{len(scenes)}...')
             if i < len(veo_clips):
-                scene_kinds.append('veo')  # is scene ke liye Flow/Veo clip hai - image nahi banegi
+                scene_kinds.append('veo')  # this scene has a Flow/Veo clip - no image will be generated
                 continue
             scene_kinds.append('image')
             seed = int(hashlib.md5(f'{job}:{i}'.encode()).hexdigest()[:6], 16) % 100000
@@ -757,20 +855,31 @@ def run_job(job, data):
                                       visual_prompt, data.get('style','2D Cartoon'), data.get('ratio','9:16'),
                                       image_path, script, data.get('characterBible',''))
             elif mode == 'pollinations':
-                if i: time.sleep(3)  # free service par naram raftaar, limit se bachne ke liye
-                update(job, 10+int(45*i/len(scenes)), f'FREE picture (Pollinations) {i+1}/{len(scenes)} ban rahi hai...')
+                if i: time.sleep(3)  # gentle pace on the free service, to avoid hitting limits
+                update(job, 10+int(45*i/len(scenes)), f'FREE picture (Pollinations) {i+1}/{len(scenes)} is being created...')
                 try:
                     generate_pollinations_image(visual_prompt, data.get('style','2D Cartoon'), data.get('ratio','9:16'),
                                                 image_path, script, data.get('characterBible',''), seed=seed)
                 except Exception:
                     placeholder_scenes.append(i + 1)
                     _placeholder_card(scene, data.get('ratio','9:16'), image_path)
-                    update(job, 10+int(45*i/len(scenes)), f'Picture {i+1} free service se nahi bani - us scene ke liye card laga diya hai, video jaari hai...')
+                    update(job, 10+int(45*i/len(scenes)), f'Picture {i+1} could not be created by the free service - a card has been used for that scene, and the video is continuing...')
             elif mode == 'cloudflare':
-                update(job, 10+int(45*i/len(scenes)), f'FREE picture (Cloudflare FLUX) {i+1}/{len(scenes)} ban rahi hai...')
+                update(job, 10+int(45*i/len(scenes)), f'FREE picture (Cloudflare FLUX) {i+1}/{len(scenes)} is being created...')
                 generate_cloudflare_image(data['cfAccount'], data['cfToken'],
                                           visual_prompt, data.get('style','2D Cartoon'), data.get('ratio','9:16'),
                                           image_path, script, data.get('characterBible',''), seed=seed)
+            elif mode in ('openverse', 'pixabay', 'pexels'):
+                provider_label = {'openverse': 'Openverse', 'pixabay': 'Pixabay', 'pexels': 'Pexels'}[mode]
+                stock_key = data.get('pixabayKey') if mode == 'pixabay' else data.get('pexelsKey')
+                update(job, 10+int(45*i/len(scenes)), f'FREE stock photo ({provider_label}) {i+1}/{len(scenes)} is being fetched...')
+                try:
+                    generate_stock_photo(mode, stock_key, visual_prompt,
+                                         data.get('ratio','9:16'), image_path, seed=seed)
+                except Exception:
+                    placeholder_scenes.append(i + 1)
+                    _placeholder_card(scene, data.get('ratio','9:16'), image_path)
+                    update(job, 10+int(45*i/len(scenes)), f'Picture {i+1} could not be fetched from {provider_label} - a card has been used for that scene, and the video is continuing...')
             else:
                 shutil.copyfile(uploads[i%len(uploads)], image_path)
             scene_image(image_path, work/f'frame_{i:04d}.jpg', scene, data.get('ratio','9:16'),
@@ -785,8 +894,8 @@ def run_job(job, data):
             frames=max(2,round(duration*fps))
             path=work/f'clip_{i:04d}.mp4'
             if scene_kinds[i] == 'veo':
-                # Flow/Veo clip: loop karke scene ki duration tak, size/crop fix,
-                # captions overlay, phir baqi scenes jaisa hi segment.
+                # Flow/Veo clip: loop it to the scene duration, fix size/crop,
+                # overlay captions, then treat it as a segment like the other scenes.
                 src = veo_clips[i]
                 fade_v = transition=='fade' or (transition=='mixed' and i%2==1)
                 fade_chain = ''
@@ -856,14 +965,16 @@ def run_job(job, data):
         if p.returncode: raise RuntimeError('Final FFmpeg error: '+p.stderr[-1200:])
         finish_msg = f'Finished! Narration: {total_duration:.1f}s. Download MP4.'
         if placeholder_scenes:
-            finish_msg += (f' NOTE: {len(placeholder_scenes)} scene(s) ki FREE images nahi ban sakin '
-                           f'(scene {", ".join(str(n) for n in placeholder_scenes)}) - un par card laga hai. '
-                           'Un scenes ke liye dobara Launch karein ya Cloudflare FREE mode try karein.')
+            finish_msg += (f' NOTE: {len(placeholder_scenes)} scene(s) had FREE images that could not be created '
+                           f'(scene {", ".join(str(n) for n in placeholder_scenes)}) - a card was used for them. '
+                           'Please Launch again for those scenes, or try Cloudflare FREE mode.')
         update(job,100,finish_msg,'done','/generated/'+result.name)
     except Exception as exc:
         message=str(exc)
         if data.get('apiKey'): message=message.replace(data['apiKey'],'[REDACTED]')
         if data.get('cfToken'): message=message.replace(data['cfToken'],'[REDACTED]')
+        if data.get('pixabayKey'): message=message.replace(data['pixabayKey'],'[REDACTED]')
+        if data.get('pexelsKey'): message=message.replace(data['pexelsKey'],'[REDACTED]')
         update(job,0,message,'error')
 
 
@@ -872,114 +983,127 @@ def index():
     return render_template_string(HTML)
 
 
-@app.post('/api/vault/unlock')
-def vault_unlock():
-    data = request.get_json(silent=True) or {}
-    password = str(data.get('password', ''))
-    if len(password) < 12: return jsonify(error='Vault password must have at least 12 characters.'),400
-    with VAULT_LOCK:
-        vault = _read_vault()
-        if vault is None:
-            salt = os.urandom(16)
-            f = Fernet(_derive(password,salt))
-            vault = {'salt':base64.b64encode(salt).decode(), 'payload':f.encrypt(b'{}').decode()}
-            _write_vault(vault)
-            accounts = {}
-        else:
-            try:
-                f = Fernet(_derive(password,base64.b64decode(vault['salt'])))
-                accounts = json.loads(f.decrypt(vault['payload'].encode()))
-            except (InvalidToken, ValueError, KeyError, json.JSONDecodeError):
-                return jsonify(error='Incorrect vault password or corrupt vault.'),403
-        token = secrets.token_urlsafe(32)
-        SESSIONS[token] = {'fernet':f,'accounts':accounts}
-    response = make_response(jsonify(ok=True))
-    response.set_cookie('studio_session',token,httponly=True,samesite='Strict',secure=False,max_age=8*3600)
-    return response
+# --- Connect Gemini: saved accounts (NO vault, NO password) ------------------
+# NOTE: this website build is for the owner's own password-gated site (the
+# whole site already sits behind the studio login), so the user's own Gemini
+# API keys are saved directly in plain JSON in the app's data folder, exactly
+# like the Flow profiles. There is deliberately no vault password / unlock
+# step. Keys are never returned by the API (only names + models), never
+# written to job logs, and are redacted from error messages.
+ACCOUNTS_FILE = ROOT / 'gemini_accounts.json'
+ACCOUNTS_LOCK = threading.RLock()
 
-@app.post('/api/vault/lock')
-def vault_lock():
-    token=_session()
-    if token: SESSIONS.pop(token,None)
-    resp=make_response(jsonify(ok=True))
-    resp.delete_cookie('studio_session')
-    return resp
+
+def _load_accounts():
+    try:
+        data = json.loads(ACCOUNTS_FILE.read_text(encoding='utf-8'))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_accounts(accounts):
+    temp = ACCOUNTS_FILE.with_suffix('.tmp')
+    temp.write_text(json.dumps(accounts, indent=2), encoding='utf-8')
+    os.replace(temp, ACCOUNTS_FILE)
+    if os.name != 'nt':
+        try:
+            os.chmod(ACCOUNTS_FILE, 0o600)
+        except OSError:
+            pass
+
 
 @app.get('/api/accounts')
 def account_list():
-    state=_account_state()
-    return jsonify(unlocked=bool(state),accounts=[{'name':n,'model':a['model']} for n,a in state['accounts'].items()] if state else [])
+    accounts = _load_accounts()
+    return jsonify(accounts=[{'name': n, 'model': a.get('model', '')} for n, a in accounts.items()])
 
-def _persist_accounts(state):
-    with VAULT_LOCK:
-        vault=_read_vault()
-        vault['payload']=state['fernet'].encrypt(json.dumps(state['accounts']).encode()).decode()
-        _write_vault(vault)
 
 @app.post('/api/accounts/save')
 def account_save():
-    state=_account_state()
-    if not state: return jsonify(error='Unlock vault first.'),401
-    d=request.get_json(silent=True) or {}
-    name=str(d.get('name','')).strip()
-    key=str(d.get('key','')).strip()
-    model=_normalize_image_model(d.get('model', DEFAULT_IMAGE_MODEL))
-    existing=state['accounts'].get(name)
-    if not key and existing:
-        key=existing['key']  # model-only update: keep the already-saved key
-    if not name or len(name)>70 or not key or len(key)>512 or not re.fullmatch(r'[A-Za-z0-9_.-]{3,100}',model):
-        return jsonify(error='Invalid account name, API key or model. New account ke liye API key lazmi hai.'),400
-    state['accounts'][name]={'key':key,'model':model}
-    _persist_accounts(state)
+    if not _same_origin(): return jsonify(error='Cross-origin request blocked.'),403
+    d = request.get_json(silent=True) or {}
+    name = str(d.get('name', '')).strip()
+    key = str(d.get('key', '')).strip()
+    model = _normalize_image_model(d.get('model', DEFAULT_IMAGE_MODEL))
+    with ACCOUNTS_LOCK:
+        accounts = _load_accounts()
+        existing = accounts.get(name)
+        if not key and existing:
+            key = existing['key']  # model-only update: keep the already-saved key
+        if not name or len(name) > 70 or not key or len(key) > 512 or not re.fullmatch(r'[A-Za-z0-9_.-]{3,100}', model):
+            return jsonify(error='Invalid account name, API key or model. An API key is required for a new account.'),400
+        accounts[name] = {'key': key, 'model': model}
+        _save_accounts(accounts)
     return jsonify(ok=True)
+
 
 @app.post('/api/accounts/delete')
 def account_delete():
-    state=_account_state()
-    if not state: return jsonify(error='Unlock vault first.'),401
-    name=str((request.get_json(silent=True) or {}).get('name',''))
-    state['accounts'].pop(name,None)
-    _persist_accounts(state)
+    if not _same_origin(): return jsonify(error='Cross-origin request blocked.'),403
+    name = str((request.get_json(silent=True) or {}).get('name', ''))
+    with ACCOUNTS_LOCK:
+        accounts = _load_accounts()
+        accounts.pop(name, None)
+        _save_accounts(accounts)
     return jsonify(ok=True)
+
 
 @app.post('/api/accounts/test')
 def account_test():
-    state=_account_state()
-    if not state: return jsonify(error='Unlock vault first.'),401
-    name=str((request.get_json(silent=True) or {}).get('name',''))
-    account=state['accounts'].get(name)
+    if not _same_origin(): return jsonify(error='Cross-origin request blocked.'),403
+    name = str((request.get_json(silent=True) or {}).get('name', ''))
+    account = _load_accounts().get(name)
     if not account: return jsonify(error='Select a saved account.'),404
     try:
         from google import genai
-        client=genai.Client(api_key=account['key'])
-        wanted=_normalize_image_model(account['model'])
-        model=client.models.get(model=wanted)
-        note='' if wanted==account['model'] else f' NOTE: purana saved model "{account["model"]}" image banate waqt auto-convert ho jayega naye model "{wanted}" mein - behtar hai model field update karke account dobara Save kar lein (key khali chhor dein to purani key hi rahegi).'
-        return jsonify(message='Gemini API key accepted and model found: '+str(model.name)+'. NOTE: yeh test sirf key/model check karta hai - IMAGE generation ke liye is project mein billing/prepaid credits lazmi hain, kyunke image models free tier par available nahi hain.'+note)
+        client = genai.Client(api_key=account['key'])
+        wanted = _normalize_image_model(account['model'])
+        model = client.models.get(model=wanted)
+        note = '' if wanted == account['model'] else f' NOTE: the old saved model "{account["model"]}" will be automatically converted to the new model when images are generated "{wanted}" - it is better to update the model field and save the account again (if you leave the key blank, the existing key will be kept).'
+        return jsonify(message='Gemini API key accepted and model found: ' + str(model.name) + '. NOTE: this test only checks the key/model - IMAGE generation requires billing/prepaid credits in this project, because image models are not available on the free tier.' + note)
     except Exception as exc:
-        return jsonify(error='Gemini model/key test failed: '+_friendly_gemini_error(exc)[:450]),400
+        return jsonify(error='Gemini model/key test failed: ' + _friendly_gemini_error(exc)[:450]),400
+
 
 @app.post('/api/launch')
 def launch():
     if not _same_origin(): return jsonify(error='Cross-origin request blocked.'),403
     data = request.form.to_dict()
-    if data.get('imageMode','pollinations') == 'gemini':
-        state=_account_state()
-        account=state['accounts'].get(data.get('accountName','')) if state else None
-        if not account: return jsonify(error='Unlock vault and select a saved Gemini account.'),401
-        data['apiKey']=account['key']
-        data['imageModel']=account['model']
+    if data.get('imageMode', 'pollinations') == 'gemini':
+        # Connect Gemini: use the saved account's key for this job only.
+        account = _load_accounts().get(str(data.get('accountName', '')).strip())
+        if not account:
+            return jsonify(error='Gemini mode: connect and select a saved Gemini account on the Connect Gemini page, or choose one of the free image sources.'),400
+        data['apiKey'] = account['key']
+        data['imageModel'] = account['model']
     if data.get('imageMode') == 'cloudflare':
-        # Token sirf is job ke liye memory mein rehta hai, disk par save nahi hota.
+        # The token stays in memory only for this job; it is not saved to disk.
         data['cfAccount']=str(data.get('cfAccount','')).strip()
         data['cfToken']=str(data.get('cfToken','')).strip()
         if not data['cfAccount'] or not data['cfToken']:
-            return jsonify(error='Cloudflare FREE mode: pehle Image Source hisse mein Cloudflare Account ID aur API Token bharein, ya Pollinations FREE mode select karein (us mein kuch nahi chahiye).'),400
+            return jsonify(error='Cloudflare FREE mode: first enter the Cloudflare Account ID and API Token in the Image Source section, or select Pollinations FREE mode (nothing is required for that mode).'),400
         if len(data['cfAccount'])>64 or len(data['cfToken'])>256:
-            return jsonify(error='Cloudflare Account ID / Token ki length theek nahi.'),400
+            return jsonify(error='The Cloudflare Account ID / Token length is not valid.'),400
+    if data.get('imageMode') in ('pixabay', 'pexels'):
+        # Free stock-photo keys: used only for this job, never saved to disk.
+        field = 'pixabayKey' if data['imageMode'] == 'pixabay' else 'pexelsKey'
+        label = 'Pixabay' if data['imageMode'] == 'pixabay' else 'Pexels'
+        data[field]=str(data.get(field,'')).strip()
+        if not data[field]:
+            return jsonify(error=f'{label} stock photos: first enter your free {label} API key in the Image Source section, or select Openverse stock photos (no key needed).'),400
+        if len(data[field])>256:
+            return jsonify(error=f'The {label} API key length is not valid.'),400
+        # The token stays in memory only for this job; it is not saved to disk.
+        data['cfAccount']=str(data.get('cfAccount','')).strip()
+        data['cfToken']=str(data.get('cfToken','')).strip()
+        if not data['cfAccount'] or not data['cfToken']:
+            return jsonify(error='Cloudflare FREE mode: first enter the Cloudflare Account ID and API Token in the Image Source section, or select Pollinations FREE mode (nothing is required for that mode).'),400
+        if len(data['cfAccount'])>64 or len(data['cfToken'])>256:
+            return jsonify(error='The Cloudflare Account ID / Token length is not valid.'),400
     script = str(data.get('script','')).strip()
     if not script: return jsonify(error='Paste your script first.'),400
-    if len(script)>MAX_SCRIPT_CHARS: return jsonify(error='Script bohat lamba hai.'),400
+    if len(script)>MAX_SCRIPT_CHARS: return jsonify(error='The script is too long.'),400
     if len(data.get('characterBible','')) > 4000: return jsonify(error='Character Bible too long.'),400
     if data.get('sceneEdits'):
         try:
@@ -1015,34 +1139,34 @@ def launch():
             return jsonify(error='One uploaded picture is invalid.'),400
         uploads.append(p)
     data['uploads']=uploads
-    # Veo / Flow scene clips (optional): pehle clips scenes ki jagah lagein ge
+    # Veo / Flow scene clips (optional): the first clips take the place of the first scenes
     clips = []
     for i, f in enumerate(request.files.getlist('sceneclips')):
         if not f or not f.filename:
             continue
         ext = Path(f.filename).suffix.lower()
         if ext not in ('.mp4', '.mov', '.webm', '.mkv'):
-            return jsonify(error='Scene clips sirf MP4 / MOV / WEBM ho sakte hain.'),400
+            return jsonify(error='Scene clips can only be MP4 / MOV / WEBM.'),400
         dest = folder / f'veoclip_{i:04d}{ext}'
         f.save(dest)
         if dest.stat().st_size > 200 * 1024 * 1024:
-            return jsonify(error='Ek scene clip bohat bari hai (max 200MB).'),400
+            return jsonify(error='A scene clip is too large (max 200MB).'),400
         clips.append(str(dest))
     if len(clips) > MAX_SCENES:
-        return jsonify(error='Bohat zyada clips hain.'),400
+        return jsonify(error='There are too many clips.'),400
     data['clips'] = clips
-    # Apna voiceover / background music (optional uploads)
+    # Own voiceover / background music (optional uploads)
     for field, key, exts in (('voiceover', 'voiceoverPath', ('.mp3', '.wav', '.m4a', '.ogg')),
                              ('musicfile', 'musicPath', ('.mp3', '.wav', '.m4a', '.ogg'))):
         f = request.files.get(field)
         if f and f.filename:
             ext = Path(f.filename).suffix.lower()
             if ext not in exts:
-                return jsonify(error='Audio sirf MP3 / WAV / M4A / OGG ho sakta hai.'),400
+                return jsonify(error='Audio can only be MP3 / WAV / M4A / OGG.'),400
             dest = folder / (key + ext)
             f.save(dest)
             if dest.stat().st_size > 60 * 1024 * 1024:
-                return jsonify(error='Audio file bohat bari hai (max 60MB).'),400
+                return jsonify(error='The audio file is too large (max 60MB).'),400
             data[key] = str(dest)
     update(job,0,'Queued...')
     with LOCK:
@@ -1140,9 +1264,9 @@ def project_save():
     name = str(d.get('name', '')).strip()
     pdata = d.get('data') if isinstance(d.get('data'), dict) else {}
     if not name or len(name) > 120:
-        return jsonify(error='Project ka naam lazmi hai (max 120 characters).'),400
+        return jsonify(error='A project name is required (max 120 characters).'),400
     if len(str(pdata.get('script', ''))) > MAX_SCRIPT_CHARS:
-        return jsonify(error='Script bohat lamba hai.'),400
+        return jsonify(error='The script is too long.'),400
     with PROJECTS_LOCK:
         projects = _load_projects()
         pid = str(d.get('id', '')).strip()
@@ -1175,7 +1299,7 @@ def voice_preview():
     name = 'preview_' + hashlib.md5(resolved.encode()).hexdigest()[:10] + '.mp3'
     target = OUT / name
     if not target.exists():
-        sample = ('Assalam-o-Alaikum! Yeh aap ki video ki awaaz ka preview hai.'
+        sample = ('Hello! This is a preview of the voice for your video.'
                   if voice.startswith(('Urdu', 'Hindi')) or resolved.startswith(('ur-', 'hi-')) else
                   'Hello! This is a preview of the voice for your video.')
         async def speak():
@@ -1183,7 +1307,7 @@ def voice_preview():
         try:
             asyncio.run(speak())
         except Exception as exc:
-            return jsonify(error='Preview nahi ban saka (internet/Edge TTS check karein): ' + str(exc)[:200]),400
+            return jsonify(error='The preview could not be created (check the internet/Edge TTS): ' + str(exc)[:200]),400
     return jsonify(url='/generated/' + name)
 
 
@@ -1194,7 +1318,7 @@ def writer():
     topic = str(d.get('topic', '')).strip()
     language = str(d.get('language', 'English')).strip()[:30] or 'English'
     if not topic or len(topic) > 500:
-        return jsonify(error='Pehle topic likhein ke kahani kis bare mein ho.'),400
+        return jsonify(error='First enter a topic: what the story should be about.'),400
     prompt = (f'Write a complete voiceover narration script for a short story video. Topic: {topic}. '
               f'Language: {language}. Write 6 to 10 short paragraphs, one scene per paragraph, separated by a blank line. '
               'Simple, engaging storytelling for listeners. No title, no headings, no scene numbers, no notes - only the narration text.')
@@ -1207,24 +1331,24 @@ def writer():
                 text = resp.read().decode('utf-8', 'replace').strip()
             if len(text) >= 80:
                 return jsonify(script=text)
-            last = 'Jawab bohat chota tha'
+            last = 'The response was too short'
         except Exception as exc:
             last = exc
-    return jsonify(error='FREE AI Writer abhi jawab nahi de saka (free service busy ho sakti hai). Thori dair baad dobara try karein. ' + str(last)[:150]),400
+    return jsonify(error='The FREE AI Writer could not respond right now (the free service may be busy). Please try again in a little while. ' + str(last)[:150]),400
 
 
 @app.get('/api/verify')
 def verify():
     checks = []
-    checks.append({'name': 'FFmpeg', 'ok': bool(shutil.which('ffmpeg')), 'detail': shutil.which('ffmpeg') or 'nahi mila - FFmpeg install karein'})
-    checks.append({'name': 'FFprobe', 'ok': bool(shutil.which('ffprobe')), 'detail': shutil.which('ffprobe') or 'nahi mila'})
+    checks.append({'name': 'FFmpeg', 'ok': bool(shutil.which('ffmpeg')), 'detail': shutil.which('ffmpeg') or 'not found - please install FFmpeg'})
+    checks.append({'name': 'FFprobe', 'ok': bool(shutil.which('ffprobe')), 'detail': shutil.which('ffprobe') or 'not found'})
     try:
         probe = OUT / '.write_test'
         probe.write_text('ok')
         probe.unlink()
-        checks.append({'name': 'Generated folder likh sakte hain', 'ok': True, 'detail': str(OUT)})
+        checks.append({'name': 'Generated folder is writable', 'ok': True, 'detail': str(OUT)})
     except Exception as exc:
-        checks.append({'name': 'Generated folder likh sakte hain', 'ok': False, 'detail': str(exc)[:120]})
+        checks.append({'name': 'Generated folder is writable', 'ok': False, 'detail': str(exc)[:120]})
     try:
         req = urllib.request.Request('https://image.pollinations.ai/models', headers={'User-Agent': 'AI-Video-Studio-Pro/1.0'})
         with urllib.request.urlopen(req, timeout=12) as resp:
@@ -1236,8 +1360,8 @@ def verify():
 
 @app.get('/api/voices')
 def voices_catalog():
-    """Edge TTS ki PURI free catalog (hundreds of voices) - pehli dafa internet
-    se la kar cache ho jati hai, phir foran milti hai."""
+    """The COMPLETE free Edge TTS catalog (hundreds of voices) - downloaded from the internet the first time
+    and cached, then available instantly afterwards."""
     try:
         if VOICES_CACHE_FILE.exists() and time.time() - VOICES_CACHE_FILE.stat().st_mtime < 7 * 86400:
             cached = json.loads(VOICES_CACHE_FILE.read_text(encoding='utf-8'))
@@ -1258,7 +1382,7 @@ def voices_catalog():
     except Exception as exc:
         fallback = [{'short': code, 'locale': code.split('-')[0] + '-' + code.split('-')[1],
                      'gender': '', 'name': label} for label, code in VOICES.items()]
-        return jsonify(voices=fallback, cached=True, note='Catalog download nahi ho saka: ' + str(exc)[:120])
+        return jsonify(voices=fallback, cached=True, note='The catalog could not be downloaded: ' + str(exc)[:120])
 
 
 def _load_flow_profiles():
@@ -1281,7 +1405,7 @@ def flow_profile_save():
     name = str(d.get('name', '')).strip()
     note = str(d.get('note', '')).strip()[:200]
     if not name or len(name) > 60:
-        return jsonify(error='Profile ka naam lazmi hai (maslan acc1 - mera Gmail).'),400
+        return jsonify(error='A profile name is required (for example, acc1 - my Gmail).'),400
     profiles = _load_flow_profiles()
     pid = str(d.get('id', '')).strip()
     found = next((p for p in profiles if p['id'] == pid), None) if pid else None
@@ -1306,14 +1430,14 @@ def flow_profile_delete():
 
 @app.post('/api/flow/open')
 def flow_open():
-    """Isi PC par browser mein Google Flow kholta hai (login user khud kare ga)."""
+    """Opens Google Flow in the browser on this PC (the user signs in themselves)."""
     if not _same_origin(): return jsonify(error='Cross-origin request blocked.'),403
     import webbrowser
     try:
         webbrowser.open('https://labs.google/fx/tools/flow')
         return jsonify(ok=True)
     except Exception as exc:
-        return jsonify(error='Browser nahi khul saka: ' + str(exc)[:150]),400
+        return jsonify(error='The browser could not be opened: ' + str(exc)[:150]),400
 
 
 @app.get('/generated/<path:name>')
