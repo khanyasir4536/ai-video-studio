@@ -203,7 +203,7 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 <p class="small">Pollinations FREE, Wikimedia Commons and Openverse stock photos: nothing is required. Cloudflare: enter the Account ID + Token in the fields below (the token is NOT saved). Gemini: select a connected account on the Connect Gemini page. Pixabay / Pexels: enter your free API key below (keys are used only for this job and are NOT saved). Stock photos are real photographs matched to each scene's prompt.</p>
 <div class="two"><div><label>Cloudflare Account ID</label><input id="cfAccount" autocomplete="off" placeholder="Only for Cloudflare mode"></div><div><label>Cloudflare API Token</label><input id="cfToken" type="password" autocomplete="off" placeholder="With Workers AI permission"></div></div>
 <div class="two"><div><label>Pixabay API Key (free)</label><input id="pixabayKey" type="password" autocomplete="off" placeholder="Only for Pixabay mode — not saved"></div><div><label>Pexels API Key (free)</label><input id="pexelsKey" type="password" autocomplete="off" placeholder="Only for Pexels mode — not saved"></div></div>
-<div class="two"><div><label>Pollinations Key (optional)</label><input id="pollinationsKey" type="password" autocomplete="off" placeholder="Optional — only if you have one, not saved"></div><div><label>&nbsp;</label><p class="small" style="margin:6px 0">Pollinations works without any key. If you have a Pollinations token, enter it here to raise the free limits — it is used only for this job and is NOT saved.</p></div></div>
+<div class="two"><div><label>Pollinations Key (optional — a server key may already be configured)</label><input id="pollinationsKey" type="password" autocomplete="off" placeholder="Optional — only if you have one, not saved"></div><div><label>&nbsp;</label><p class="small" style="margin:6px 0">Pollinations works without any key. A key raises the free limits and uses the newer, more reliable endpoint. If the server already has a key configured, you can leave this empty — otherwise enter yours here; it is used only for this job and is NOT saved.</p></div></div>
 <label>Upload images (for Upload mode; scene order = file order)</label><input id="uploads" type="file" accept="image/png,image/jpeg,image/webp" multiple>
 <label>🎬 Veo / Flow scene clips (optional MP4 — the first clips will take the place of the first scenes; the remaining scenes will be created from images)</label><input id="sceneClips" type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.mkv" multiple>
 <p class="small">Create the clips in Google Flow and download them (see the Flow page below), then add them here — captions and voiceover will be applied to them as well.</p></div>
@@ -531,57 +531,72 @@ def _placeholder_card(scene, ratio, output, scene_no=None):
     img.save(output)
 
 
+def _pollinations_fetch(url, headers, output):
+    """One Pollinations request; PIL-validates the reply and saves it."""
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = resp.read()
+    with Image.open(io.BytesIO(data)) as img:  # raises if reply is not an image
+        img.convert('RGB').save(output)
+
+
 def generate_pollinations_image(scene, style, ratio, output, continuity, character_bible="", seed=42, token=""):
     """FREE image generation via Pollinations (no API key, no billing).
 
-    Verified live on 2026-10-21: the anonymous endpoint returns real
-    prompt-matched images. BUT the free service is flaky: it sporadically
-    returns HTTP 404 / 402 / 429 even for good prompts (the first shipped
-    version did not retry 404, so one bad reply killed the whole video -
-    that is what Yasir hit). Strategy now:
-      attempt 1-2: full prompt + model=flux
-      attempt 3:   same prompt, no model/nologo params (server fallback)
-      attempt 4:   SHORT prompt (style + character + scene only)
-    Every HTTP error is retried with short backoff (5s/10s/15s) so a dead
-    source does not stall the per-scene fallback chain for long. Requests
-    carry a realistic browser User-Agent + Accept: image/* because some
-    networks (datacenter IPs, e.g. Render) reject bot-style agents. An
-    optional user token can be appended (&token=...) to raise free limits;
-    it is used only for this job and redacted from errors. Raises only
-    after all 4 attempts. Uses only the Python standard library.
+    Strategy: the NEW endpoint (gen.pollinations.ai/image) is tried first -
+    two seed variants with model=flux, sending Authorization: Bearer <key>
+    when a key is available (a job form key, or the server's
+    POLLINATIONS_API_KEY environment variable, resolved by the caller). If
+    the new endpoint fails, the EXISTING legacy endpoint sequence runs
+    unchanged (image.pollinations.ai, 4 variants, &token= appended when a
+    key is available):
+      legacy 1-2: full prompt + model=flux
+      legacy 3:   same prompt, no model/nologo params (server fallback)
+      legacy 4:   SHORT prompt (style + character + scene only)
+    The anonymous service is flaky (sporadic 404 / 402 / 429), so every
+    failure is retried with short backoff so a dead endpoint does not stall
+    the per-scene fallback chain for long. Requests carry a realistic
+    browser User-Agent + Accept: image/* because some networks (datacenter
+    IPs, e.g. Render) reject bot-style agents. The key is used only for
+    this job and is redacted from errors. Raises only after all attempts.
+    Uses only the Python standard library.
     """
     prompt = _image_prompt(scene, style, ratio, continuity, character_bible)
     short_prompt = (f'{style} illustration, detailed, colorful. '
                     + (f'Character: {character_bible[:200]}. ' if character_bible else '')
                     + f'Scene: {scene[:500]}. No text, no watermark, no split panels.')
     w, h = {'9:16': (720, 1280), '16:9': (1280, 720), '1:1': (1024, 1024)}.get(ratio, (720, 1280))
+    headers = {'User-Agent': _BROWSER_UA, 'Accept': 'image/*'}
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
+    quoted = urllib.parse.quote(prompt, safe='')
+    gen_base = 'https://gen.pollinations.ai/image/'
+    urls = [
+        gen_base + quoted + f'?model=flux&width={w}&height={h}&seed={int(seed)}',
+        gen_base + quoted + f'?model=flux&width={w}&height={h}&seed={int(seed) + 1}',
+    ]
     base = 'https://image.pollinations.ai/prompt/'
     token_qs = ('&token=' + urllib.parse.quote(str(token), safe='')) if token else ''
-    urls = [
-        base + urllib.parse.quote(prompt, safe='') + f'?width={w}&height={h}&seed={int(seed)}&model=flux&nologo=true' + token_qs,
-        base + urllib.parse.quote(prompt, safe='') + f'?width={w}&height={h}&seed={int(seed) + 1}&model=flux&nologo=true' + token_qs,
-        base + urllib.parse.quote(prompt, safe='') + f'?width={w}&height={h}&seed={int(seed) + 2}' + token_qs,
+    urls += [
+        base + quoted + f'?width={w}&height={h}&seed={int(seed)}&model=flux&nologo=true' + token_qs,
+        base + quoted + f'?width={w}&height={h}&seed={int(seed) + 1}&model=flux&nologo=true' + token_qs,
+        base + quoted + f'?width={w}&height={h}&seed={int(seed) + 2}' + token_qs,
         base + urllib.parse.quote(short_prompt, safe='') + f'?width={w}&height={h}&seed={int(seed) + 3}' + token_qs,
     ]
-    headers = {'User-Agent': _BROWSER_UA, 'Accept': 'image/*'}
     last_error = None
     for attempt, url in enumerate(urls):
         try:
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                data = resp.read()
-            with Image.open(io.BytesIO(data)) as img:  # raises if reply is not an image
-                img.convert('RGB').save(output)
+            _pollinations_fetch(url, headers, output)
             return
         except Exception as exc:  # ANY failure (404/402/429/5xx/network): back off and try the next variant
             last_error = exc
             if attempt < len(urls) - 1:
-                time.sleep(5 * (attempt + 1))
+                time.sleep(5 * (attempt % 3 + 1))
     detail = str(last_error)[:250]
-    if token:  # never leak the token through an error message
+    if token:  # never leak the key through an error message
         detail = detail.replace(str(token), '[REDACTED]')
         detail = detail.replace(urllib.parse.quote(str(token), safe=''), '[REDACTED]')
-    raise RuntimeError('Pollinations FREE image could not be created (after 4 attempts). '
+    raise RuntimeError('Pollinations FREE image could not be created (after all attempts). '
                        f'Original error: {detail}')
 
 
@@ -836,8 +851,16 @@ _SOURCE_LABELS = {'pollinations': 'Pollinations', 'wikimedia': 'Wikimedia Common
                   'openverse': 'Openverse', 'pixabay': 'Pixabay', 'pexels': 'Pexels',
                   'cloudflare': 'Cloudflare FLUX'}
 
+# Stock providers serve REAL photographs. Inside an illustrated story a
+# random real photo looks wrong (a cartoon story suddenly cutting to a real
+# boy drinking water was the owner's actual complaint), so the stock rescue
+# only makes sense for photo-like styles. For every other style the chain
+# uses AI sources only and ends at the placeholder card.
+PHOTO_STYLES = {'Realistic', 'Documentary', 'Photorealistic Portrait', 'Cinematic'}
+_STOCK_SOURCES = ('wikimedia', 'openverse', 'pixabay', 'pexels')
 
-def _free_chain(data, chosen):
+
+def _free_chain(data, chosen, allow_stock=True):
     """Order of FREE sources to try for one scene: the chosen FREE source
     first, then Pollinations -> Wikimedia Commons -> Openverse -> Pixabay
     (only when a key was submitted with this job) -> Pexels (only when a key
@@ -846,14 +869,21 @@ def _free_chain(data, chosen):
     keyless and server-friendly, while Openverse is often Cloudflare-gated
     from datacenter IPs.
 
+    When allow_stock is False (the job's style is not a photo style), the
+    stock providers are excluded entirely - AI sources only (Pollinations,
+    plus Cloudflare when configured) - because a mismatched real photo
+    inside an illustrated story looks worse than the placeholder card.
+
     Gemini NEVER appears in this chain, in either direction: a Gemini failure
     must stay explicit (billing errors must not be hidden), and Gemini must
     never be charged as a surprise fallback for another mode."""
-    order = ['pollinations', 'wikimedia', 'openverse']
-    if data.get('pixabayKey'):
-        order.append('pixabay')
-    if data.get('pexelsKey'):
-        order.append('pexels')
+    order = ['pollinations']
+    if allow_stock:
+        order += ['wikimedia', 'openverse']
+        if data.get('pixabayKey'):
+            order.append('pixabay')
+        if data.get('pexelsKey'):
+            order.append('pexels')
     if data.get('cfAccount') and data.get('cfToken'):
         order.append('cloudflare')
     chain = [chosen] if chosen in order else []
@@ -867,8 +897,12 @@ def _attempt_free_image(source, data, visual_prompt, image_path, seed, continuit
     ratio = data.get('ratio', '9:16')
     bible = data.get('characterBible', '')
     if source == 'pollinations':
+        # Key resolution: this job's form key first, else the server's
+        # POLLINATIONS_API_KEY environment variable (set by the host).
+        key = str(data.get('pollinationsKey') or '').strip() \
+            or os.environ.get('POLLINATIONS_API_KEY', '').strip()
         generate_pollinations_image(visual_prompt, style, ratio, image_path, continuity, bible,
-                                    seed=seed, token=data.get('pollinationsKey') or '')
+                                    seed=seed, token=key)
     elif source == 'cloudflare':
         generate_cloudflare_image(data['cfAccount'], data['cfToken'], visual_prompt, style,
                                   ratio, image_path, continuity, bible, seed=seed)
@@ -881,10 +915,16 @@ def _fetch_scene_picture(job, data, scene_index, scene_no, visual_prompt, image_
                          seed, continuity, progress):
     """Create one scene's picture through the FREE fallback chain.
 
-    Returns (source_used, was_rescue). Raises the LAST source's error when
-    every available source failed, so the caller can use a placeholder card.
-    Gemini and upload modes are handled by the caller, never here."""
-    chain = _free_chain(data, data.get('imageMode', 'pollinations'))
+    Returns (source_used, was_rescue). When every available source failed,
+    raises the LAST source's error so the caller can use a placeholder card;
+    if a stock-photo rescue was skipped because the job's style is not a
+    photo style, the raised error carries a stock_skipped attribute (and one
+    line is written to the job log). Gemini and upload modes are handled by
+    the caller, never here."""
+    style = data.get('style', '2D Cartoon')
+    allow_stock = style in PHOTO_STYLES
+    chosen = data.get('imageMode', 'pollinations')
+    chain = _free_chain(data, chosen, allow_stock=allow_stock)
     last_error = None
     for pos, source in enumerate(chain):
         label = _SOURCE_LABELS[source]
@@ -901,11 +941,21 @@ def _fetch_scene_picture(job, data, scene_index, scene_no, visual_prompt, image_
                        f'Picture {scene_no}: {label} failed - trying {_SOURCE_LABELS[chain[pos + 1]]} next...')
             continue
         if pos:
-            used = f'{label} photo' if source in ('openverse', 'pixabay', 'pexels', 'wikimedia') else label
+            used = f'{label} photo' if source in _STOCK_SOURCES else label
             update(job, progress,
                    f'Picture {scene_no}: {_SOURCE_LABELS[chain[0]]} failed — {used} used instead.')
         return source, pos > 0
-    raise last_error if last_error is not None else RuntimeError('No free image source is available.')
+    err = last_error if last_error is not None else RuntimeError('No free image source is available.')
+    if not allow_stock:
+        full_chain = _free_chain(data, chosen, allow_stock=True)
+        if any(s in _STOCK_SOURCES for s in full_chain):
+            update(job, progress,
+                   f'Picture {scene_no}: stock-photo rescue skipped - the "{style}" style is not a photo style, so only AI sources were tried for this scene.')
+            try:
+                err.stock_skipped = True
+            except Exception:
+                pass
+    raise err
 
 
 def probe_duration(path):
@@ -923,17 +973,22 @@ def _join_xfade(segments, durations, transition_mode, output):
 
     All segments share the same size / fps / codec (they are rendered that
     way), so they can be chained: [0][1]xfade -> [x1]; [x1][2]xfade -> [x2].
-    Every junction overlaps _XFADE_DURATION seconds, so the joined video is
-    (n-1)*0.5s shorter than the sum of the segment durations (the caller
-    muxes the voiceover with -shortest to absorb that).
 
-    Junction offsets use the standard cumulative bookkeeping:
-        offset_k = (sum of durations of segments 0..k) - (k+1)*0.5
-    where `durations` are the per-scene narration durations the segments
-    were rendered from. 'fade' uses a plain fade at every junction; 'mixed'
-    cycles fade / fadeblack / smoothleft / dissolve / fadewhite /
-    smoothright. Raises on any ffmpeg failure so the caller can fall back
-    to the plain concat join - transitions must never kill a job.
+    SYNC: the caller renders every segment EXCEPT the last with an extra
+    _XFADE_DURATION of tail frames (duration + 0.5s of source material).
+    The offsets below are the plain narration boundaries:
+        offset_k = sum of durations of segments 0..k
+    Junction k starts blending exactly when scene k's narration slot ends.
+    The blend consumes the previous segment's padded tail while the next
+    scene's own frames roll in from the boundary, so scene k occupies
+    [sum(durations 0..k-1), sum(durations 0..k)] in the output - every
+    scene starts in sync with its narration, and the joined video is
+    ≈ the sum of the narration durations instead of drifting ahead of
+    the voiceover by up to (n-1)*0.5s.
+    'fade' uses a plain fade at every junction; 'mixed' cycles fade /
+    fadeblack / smoothleft / dissolve / fadewhite / smoothright. Raises on
+    any ffmpeg failure so the caller can fall back to the plain concat
+    join - transitions must never kill a job.
     """
     n = len(segments)
     if n < 2:
@@ -947,7 +1002,7 @@ def _join_xfade(segments, durations, transition_mode, output):
     elapsed = 0.0
     for k in range(n - 1):
         elapsed += durations[k]
-        offset = elapsed - (k + 1) * _XFADE_DURATION
+        offset = elapsed  # narration boundary; the padded tail supplies the overlap
         out_label = 'vout' if k == n - 2 else f'x{k + 1}'
         parts.append(f'[{prev}][{k + 1}:v]xfade=transition={kinds[k]}'
                      f':duration={_XFADE_DURATION}:offset={offset:.3f}[{out_label}]')
@@ -1043,6 +1098,7 @@ def run_job(job, data):
         # video into text cards.
         placeholder_scenes = []
         rescued_scenes = []  # (scene number, label of the source that saved it)
+        stock_skipped = False  # a stock rescue was skipped: style is not photo-like
         veo_clips = data.get('clips', [])
         scene_kinds = []
         for i, scene in enumerate(scenes):
@@ -1067,7 +1123,9 @@ def run_job(job, data):
                         job, data, i, i + 1, visual_prompt, image_path, seed, script, progress)
                     if was_rescue:
                         rescued_scenes.append((i + 1, _SOURCE_LABELS[used_source]))
-                except Exception:
+                except Exception as exc:
+                    if getattr(exc, 'stock_skipped', False):
+                        stock_skipped = True
                     placeholder_scenes.append(i + 1)
                     _placeholder_card(scene, data.get('ratio','9:16'), image_path, scene_no=i + 1)
                     update(job, progress, f'Picture {i+1}: every free source failed - a card has been used for that scene, and the video is continuing...')
@@ -1082,13 +1140,19 @@ def run_job(job, data):
         # every neighbouring pair; otherwise the whole video keeps the plain
         # concat join with the small baked-in edge fades (exactly as before).
         # When xfade is planned, segments are rendered WITHOUT edge fades so
-        # junctions are not double-faded.
+        # junctions are not double-faded, and every segment except the last
+        # is rendered with a +0.5s tail (see _join_xfade) so the joined
+        # video keeps narration sync.
         use_xfade = (transition != 'cut' and len(durations) >= 2 and
                      all(durations[k] >= 1.2 and durations[k + 1] >= 1.2
                          for k in range(len(durations) - 1)))
         for i,duration in enumerate(durations):
             # Scene video frame count follows narration duration; no fixed duration dropdown.
-            frames=max(2,round(duration*fps))
+            # With xfade planned, non-final segments get frames for
+            # duration + _XFADE_DURATION: the overlap at each junction then
+            # consumes this tail instead of the next scene's time.
+            seg_duration = duration + _XFADE_DURATION if (use_xfade and i < len(durations) - 1) else duration
+            frames=max(2,round(seg_duration*fps))
             path=work/f'clip_{i:04d}.mp4'
             if scene_kinds[i] == 'veo':
                 # Flow/Veo clip: loop it to the scene duration, fix size/crop,
@@ -1149,11 +1213,13 @@ def run_job(job, data):
             for seg in segments: f.write(f"file '{seg.name}'\n")
         result=OUT/(job+'.mp4')
         # Join the scene segments into one video stream. When use_xfade, the
-        # segments (rendered WITHOUT baked-in edge fades) are joined with a
-        # real xfade chain; the joined video is (n-1)*0.5s shorter than the
-        # voiceover, which the -shortest flag on the mux below absorbs. If
-        # the xfade run fails for any reason, fall back to the plain concat
-        # join - transitions must never kill a job.
+        # segments (rendered WITHOUT baked-in edge fades, and with a +0.5s
+        # tail on every segment except the last) are joined with a real
+        # xfade chain whose total length matches the voiceover, so picture
+        # and narration stay in sync; -shortest on the mux below remains as
+        # a safety trim. If the xfade run fails for any reason, fall back to
+        # the plain concat join (of the slightly longer segments) -
+        # transitions must never kill a job.
         video_args = ['-f','concat','-safe','0','-i',str(concat)]
         if use_xfade:
             update(job, 91, 'Applying transitions between scenes...')
@@ -1184,6 +1250,9 @@ def run_job(job, data):
             finish_msg += (f' NOTE: {len(placeholder_scenes)} scene(s) had FREE images that could not be created '
                            f'(scene {", ".join(str(n) for n in placeholder_scenes)}) - a card was used for them. '
                            'Please Launch again for those scenes, or try another image source.')
+            if stock_skipped:
+                finish_msg += (' Stock-photo rescue was skipped for those scenes because the selected '
+                               'style is not a photo style - a stock photo would not match an illustrated story.')
         update(job,100,finish_msg,'done','/generated/'+result.name)
     except Exception as exc:
         message=str(exc)
@@ -1192,6 +1261,8 @@ def run_job(job, data):
         if data.get('pixabayKey'): message=message.replace(data['pixabayKey'],'[REDACTED]')
         if data.get('pexelsKey'): message=message.replace(data['pexelsKey'],'[REDACTED]')
         if data.get('pollinationsKey'): message=message.replace(data['pollinationsKey'],'[REDACTED]')
+        env_pollinations_key = os.environ.get('POLLINATIONS_API_KEY', '')
+        if env_pollinations_key: message=message.replace(env_pollinations_key,'[REDACTED]')
         update(job,0,message,'error')
 
 
@@ -1315,13 +1386,6 @@ def launch():
             return jsonify(error=f'{label} stock photos: first enter your free {label} API key in the Image Source section, or select Wikimedia Commons or Openverse stock photos (no key needed).'),400
         if len(data[field])>256:
             return jsonify(error=f'The {label} API key length is not valid.'),400
-        # The token stays in memory only for this job; it is not saved to disk.
-        data['cfAccount']=str(data.get('cfAccount','')).strip()
-        data['cfToken']=str(data.get('cfToken','')).strip()
-        if not data['cfAccount'] or not data['cfToken']:
-            return jsonify(error='Cloudflare FREE mode: first enter the Cloudflare Account ID and API Token in the Image Source section, or select Pollinations FREE mode (nothing is required for that mode).'),400
-        if len(data['cfAccount'])>64 or len(data['cfToken'])>256:
-            return jsonify(error='The Cloudflare Account ID / Token length is not valid.'),400
     script = str(data.get('script','')).strip()
     if not script: return jsonify(error='Paste your script first.'),400
     if len(script)>MAX_SCRIPT_CHARS: return jsonify(error='The script is too long.'),400
@@ -1578,6 +1642,11 @@ def verify():
                            'detail': f'Models endpoint reachable (HTTP {resp.status})'})
     except Exception as exc:
         checks.append({'name': 'Pollinations FREE images', 'ok': False, 'detail': str(exc)[:120]})
+    pollinations_server_key = bool(os.environ.get('POLLINATIONS_API_KEY', '').strip())
+    checks.append({'name': 'Pollinations server key', 'ok': pollinations_server_key,
+                   'detail': 'Configured - Pollinations jobs use the server key (Bearer) on the new endpoint.'
+                             if pollinations_server_key else
+                             'Not configured - jobs use the form key if one is entered, otherwise anonymous mode.'})
     try:
         ov_url = 'https://api.openverse.org/v1/images/?' + urllib.parse.urlencode(
             {'q': 'nature', 'page_size': 1, 'license_type': 'all'})
