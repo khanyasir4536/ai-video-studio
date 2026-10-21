@@ -203,6 +203,7 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 <p class="small">Pollinations FREE and Openverse stock photos: nothing is required. Cloudflare: enter the Account ID + Token in the fields below (the token is NOT saved). Gemini: select a connected account on the Connect Gemini page. Pixabay / Pexels: enter your free API key below (keys are used only for this job and are NOT saved). Stock photos are real photographs matched to each scene's prompt.</p>
 <div class="two"><div><label>Cloudflare Account ID</label><input id="cfAccount" autocomplete="off" placeholder="Only for Cloudflare mode"></div><div><label>Cloudflare API Token</label><input id="cfToken" type="password" autocomplete="off" placeholder="With Workers AI permission"></div></div>
 <div class="two"><div><label>Pixabay API Key (free)</label><input id="pixabayKey" type="password" autocomplete="off" placeholder="Only for Pixabay mode — not saved"></div><div><label>Pexels API Key (free)</label><input id="pexelsKey" type="password" autocomplete="off" placeholder="Only for Pexels mode — not saved"></div></div>
+<div class="two"><div><label>Pollinations Key (optional)</label><input id="pollinationsKey" type="password" autocomplete="off" placeholder="Optional — only if you have one, not saved"></div><div><label>&nbsp;</label><p class="small" style="margin:6px 0">Pollinations works without any key. If you have a Pollinations token, enter it here to raise the free limits — it is used only for this job and is NOT saved.</p></div></div>
 <label>Upload images (for Upload mode; scene order = file order)</label><input id="uploads" type="file" accept="image/png,image/jpeg,image/webp" multiple>
 <label>🎬 Veo / Flow scene clips (optional MP4 — the first clips will take the place of the first scenes; the remaining scenes will be created from images)</label><input id="sceneClips" type="file" accept="video/mp4,video/quicktime,video/webm,.mp4,.mov,.webm,.mkv" multiple>
 <p class="small">Create the clips in Google Flow and download them (see the Flow page below), then add them here — captions and voiceover will be applied to them as well.</p></div>
@@ -336,7 +337,7 @@ if(mode==='pixabay'&&!document.getElementById('pixabayKey').value.trim()){alert(
 if(mode==='pexels'&&!document.getElementById('pexelsKey').value.trim()){alert('Pexels mode: enter your free Pexels API key in the Image Source section — or use Openverse stock photos (no key needed).');return;}
 if(mode==='cloudflare'&&(!document.getElementById('cfAccount').value.trim()||!document.getElementById('cfToken').value.trim())){alert('For Cloudflare mode, enter the Account ID and Token.');return;}
 let b=document.getElementById('launch');b.disabled=true;document.getElementById('result').innerHTML='';document.getElementById('status').textContent=queuedOnly?'Adding to queue...':'Starting...';document.getElementById('progress').value=0;
-try{let r=await fetch('/api/launch',{method:'POST',body:(()=>{let f=new FormData();let s=collectSettings();let vals={script:s.script,style:s.style,voice:s.voice,ratio:s.ratio,speed:s.speed,captions:s.captions,transitions:s.transitions,motion:s.motion,captionStyle:s.captionStyle,imageMode:s.imageMode,accountName:document.getElementById('accountSelect').value,cfAccount:document.getElementById('cfAccount').value,cfToken:document.getElementById('cfToken').value,pixabayKey:document.getElementById('pixabayKey').value,pexelsKey:document.getElementById('pexelsKey').value,characterBible:s.characterBible,projectName:document.getElementById('projectName').value,sceneEdits:sceneEdits.length?JSON.stringify(sceneEdits):''};for(let [k,v] of Object.entries(vals))f.append(k,v);for(let file of document.getElementById('uploads').files)f.append('images',file);for(let file of document.getElementById('sceneClips').files)f.append('sceneclips',file);const ov=document.getElementById('ownVoice').files[0];if(ov)f.append('voiceover',ov);const mf=document.getElementById('musicFile').files[0];if(mf)f.append('musicfile',mf);return f;})()});
+try{let r=await fetch('/api/launch',{method:'POST',body:(()=>{let f=new FormData();let s=collectSettings();let vals={script:s.script,style:s.style,voice:s.voice,ratio:s.ratio,speed:s.speed,captions:s.captions,transitions:s.transitions,motion:s.motion,captionStyle:s.captionStyle,imageMode:s.imageMode,accountName:document.getElementById('accountSelect').value,cfAccount:document.getElementById('cfAccount').value,cfToken:document.getElementById('cfToken').value,pixabayKey:document.getElementById('pixabayKey').value,pexelsKey:document.getElementById('pexelsKey').value,pollinationsKey:document.getElementById('pollinationsKey').value,characterBible:s.characterBible,projectName:document.getElementById('projectName').value,sceneEdits:sceneEdits.length?JSON.stringify(sceneEdits):''};for(let [k,v] of Object.entries(vals))f.append(k,v);for(let file of document.getElementById('uploads').files)f.append('images',file);for(let file of document.getElementById('sceneClips').files)f.append('sceneclips',file);const ov=document.getElementById('ownVoice').files[0];if(ov)f.append('voiceover',ov);const mf=document.getElementById('musicFile').files[0];if(mf)f.append('musicfile',mf);return f;})()});
 let x=await r.json();if(!r.ok)throw Error(x.error||'Failed to start');
 if(queuedOnly){b.disabled=false;document.getElementById('status').textContent='Added to the queue ✔ — check the status on the Queue page.';loadJobs();return;}
 clearInterval(timer);timer=setInterval(async()=>{try{let q=await fetch('/api/status/'+x.job);let j=await q.json();document.getElementById('status').textContent=j.message;document.getElementById('progress').value=j.progress;loadJobs();
@@ -481,22 +482,56 @@ def _caption_overlay(text, ratio, caption_style, output):
     img.save(output)
 
 
-def _placeholder_card(scene, ratio, output):
-    """Local fallback card so ONE failed free image never kills the whole video."""
+_BROWSER_UA = ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+               '(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36')
+
+
+def _placeholder_card(scene, ratio, output, scene_no=None):
+    """Local fallback card so ONE failed image never kills the whole video.
+
+    Clean gradient card: a drawn film-frame icon, "Scene N" and at most the
+    first ~8 words of the scene in small type. It deliberately does NOT print
+    the full narration: captions are drawn over the card later, and a wall of
+    text made failed scenes look like a text slideshow.
+    """
     w, h = dimensions(ratio)
-    img = Image.new('RGB', (w, h), (16, 27, 51))
+    top, bottom = (33, 52, 110), (8, 12, 30)
+    img = Image.new('RGB', (w, h))
     d = ImageDraw.Draw(img)
-    f = font(max(28, int(w * .05)))
-    lines = wrap_text(d, re.sub(r'\s+', ' ', scene).strip()[:220], f, int(w * .84))[:8]
-    y = h // 2 - len(lines) * max(38, int(w * .07)) // 2
-    for line in lines:
-        box = d.textbbox((0, 0), line, font=f)
-        d.text(((w - (box[2] - box[0])) // 2, y), line, font=f, fill=(220, 232, 255))
-        y += max(38, int(w * .07))
+    for yy in range(h):  # vertical gradient background
+        t = yy / max(1, h - 1)
+        d.line([(0, yy), (w, yy)],
+               fill=tuple(int(top[c] + (bottom[c] - top[c]) * t) for c in range(3)))
+    # Drawn film-frame icon with sprocket holes and a play triangle.
+    cx, cy = w // 2, int(h * 0.34)
+    fw, fh = int(w * 0.44), int(w * 0.30)
+    x0, y0, x1, y1 = cx - fw // 2, cy - fh // 2, cx + fw // 2, cy + fh // 2
+    d.rounded_rectangle((x0, y0, x1, y1), radius=max(10, w // 40),
+                        outline=(148, 178, 255), width=max(4, w // 110))
+    hole = max(5, w // 55)
+    for hx in range(x0 + hole, x1 - hole, hole * 2):
+        d.rectangle((hx, y0 + hole // 2, hx + hole // 2, y0 + hole), fill=(148, 178, 255))
+        d.rectangle((hx, y1 - hole, hx + hole // 2, y1 - hole // 2), fill=(148, 178, 255))
+    tri = int(fh * 0.26)
+    d.polygon([(cx - tri // 2, cy - tri), (cx - tri // 2, cy + tri), (cx + tri, cy)],
+              fill=(255, 211, 106))
+    label = f'Scene {scene_no}' if scene_no else 'Scene'
+    f_big = font(max(34, int(w * .075)))
+    box = d.textbbox((0, 0), label, font=f_big)
+    d.text(((w - (box[2] - box[0])) // 2, int(h * 0.52)), label, font=f_big, fill=(232, 240, 255))
+    words = re.sub(r'\s+', ' ', str(scene)).strip().split()
+    teaser = ' '.join(words[:8]) + ('...' if len(words) > 8 else '')
+    if teaser:
+        f_small = font(max(20, int(w * .032)))
+        y = int(h * 0.52) + max(48, int(w * .11))
+        for line in wrap_text(d, teaser, f_small, int(w * .8))[:2]:
+            b = d.textbbox((0, 0), line, font=f_small)
+            d.text(((w - (b[2] - b[0])) // 2, y), line, font=f_small, fill=(168, 188, 230))
+            y += max(30, int(w * .045))
     img.save(output)
 
 
-def generate_pollinations_image(scene, style, ratio, output, continuity, character_bible="", seed=42):
+def generate_pollinations_image(scene, style, ratio, output, continuity, character_bible="", seed=42, token=""):
     """FREE image generation via Pollinations (no API key, no billing).
 
     Verified live on 2026-10-21: the anonymous endpoint returns real
@@ -507,8 +542,13 @@ def generate_pollinations_image(scene, style, ratio, output, continuity, charact
       attempt 1-2: full prompt + model=flux
       attempt 3:   same prompt, no model/nologo params (server fallback)
       attempt 4:   SHORT prompt (style + character + scene only)
-    Every HTTP error is retried with backoff. Raises only after all 4.
-    Uses only the Python standard library (no new dependency).
+    Every HTTP error is retried with short backoff (5s/10s/15s) so a dead
+    source does not stall the per-scene fallback chain for long. Requests
+    carry a realistic browser User-Agent + Accept: image/* because some
+    networks (datacenter IPs, e.g. Render) reject bot-style agents. An
+    optional user token can be appended (&token=...) to raise free limits;
+    it is used only for this job and redacted from errors. Raises only
+    after all 4 attempts. Uses only the Python standard library.
     """
     prompt = _image_prompt(scene, style, ratio, continuity, character_bible)
     short_prompt = (f'{style} illustration, detailed, colorful. '
@@ -516,16 +556,18 @@ def generate_pollinations_image(scene, style, ratio, output, continuity, charact
                     + f'Scene: {scene[:500]}. No text, no watermark, no split panels.')
     w, h = {'9:16': (720, 1280), '16:9': (1280, 720), '1:1': (1024, 1024)}.get(ratio, (720, 1280))
     base = 'https://image.pollinations.ai/prompt/'
+    token_qs = ('&token=' + urllib.parse.quote(str(token), safe='')) if token else ''
     urls = [
-        base + urllib.parse.quote(prompt, safe='') + f'?width={w}&height={h}&seed={int(seed)}&model=flux&nologo=true',
-        base + urllib.parse.quote(prompt, safe='') + f'?width={w}&height={h}&seed={int(seed) + 1}&model=flux&nologo=true',
-        base + urllib.parse.quote(prompt, safe='') + f'?width={w}&height={h}&seed={int(seed) + 2}',
-        base + urllib.parse.quote(short_prompt, safe='') + f'?width={w}&height={h}&seed={int(seed) + 3}',
+        base + urllib.parse.quote(prompt, safe='') + f'?width={w}&height={h}&seed={int(seed)}&model=flux&nologo=true' + token_qs,
+        base + urllib.parse.quote(prompt, safe='') + f'?width={w}&height={h}&seed={int(seed) + 1}&model=flux&nologo=true' + token_qs,
+        base + urllib.parse.quote(prompt, safe='') + f'?width={w}&height={h}&seed={int(seed) + 2}' + token_qs,
+        base + urllib.parse.quote(short_prompt, safe='') + f'?width={w}&height={h}&seed={int(seed) + 3}' + token_qs,
     ]
+    headers = {'User-Agent': _BROWSER_UA, 'Accept': 'image/*'}
     last_error = None
     for attempt, url in enumerate(urls):
         try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'AI-Video-Studio-Pro/1.0'})
+            req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=120) as resp:
                 data = resp.read()
             with Image.open(io.BytesIO(data)) as img:  # raises if reply is not an image
@@ -534,9 +576,13 @@ def generate_pollinations_image(scene, style, ratio, output, continuity, charact
         except Exception as exc:  # ANY failure (404/402/429/5xx/network): back off and try the next variant
             last_error = exc
             if attempt < len(urls) - 1:
-                time.sleep(10 * (attempt + 1))
+                time.sleep(5 * (attempt + 1))
+    detail = str(last_error)[:250]
+    if token:  # never leak the token through an error message
+        detail = detail.replace(str(token), '[REDACTED]')
+        detail = detail.replace(urllib.parse.quote(str(token), safe=''), '[REDACTED]')
     raise RuntimeError('Pollinations FREE image could not be created (after 4 attempts). '
-                       f'Original error: {str(last_error)[:250]}')
+                       f'Original error: {detail}')
 
 
 def generate_cloudflare_image(account_id, token, scene, style, ratio, output, continuity, character_bible="", seed=42):
@@ -759,6 +805,83 @@ def generate_stock_photo(provider, api_key, scene_prompt, ratio, output, seed=42
         raise RuntimeError(f'{label} stock photo error: {message[:300]}') from exc
 
 
+# --- Per-scene FREE fallback chain -------------------------------------------
+# On the hosted deployment one free source can be dead for EVERY scene (e.g.
+# Pollinations refusing the datacenter network), while another source works
+# fine. So a failed FREE scene no longer goes straight to a placeholder card:
+# the remaining free sources are tried first, in a fixed order.
+_SOURCE_LABELS = {'pollinations': 'Pollinations', 'openverse': 'Openverse',
+                  'pixabay': 'Pixabay', 'pexels': 'Pexels', 'cloudflare': 'Cloudflare FLUX'}
+
+
+def _free_chain(data, chosen):
+    """Order of FREE sources to try for one scene: the chosen FREE source
+    first, then Pollinations -> Openverse -> Pixabay (only when a key was
+    submitted with this job) -> Pexels (only when a key was submitted) ->
+    Cloudflare (only when Account ID + Token were submitted).
+
+    Gemini NEVER appears in this chain, in either direction: a Gemini failure
+    must stay explicit (billing errors must not be hidden), and Gemini must
+    never be charged as a surprise fallback for another mode."""
+    order = ['pollinations', 'openverse']
+    if data.get('pixabayKey'):
+        order.append('pixabay')
+    if data.get('pexelsKey'):
+        order.append('pexels')
+    if data.get('cfAccount') and data.get('cfToken'):
+        order.append('cloudflare')
+    chain = [chosen] if chosen in order else []
+    chain.extend(s for s in order if s != chosen)
+    return chain
+
+
+def _attempt_free_image(source, data, visual_prompt, image_path, seed, continuity):
+    """One attempt at one FREE source. Raises on failure."""
+    style = data.get('style', '2D Cartoon')
+    ratio = data.get('ratio', '9:16')
+    bible = data.get('characterBible', '')
+    if source == 'pollinations':
+        generate_pollinations_image(visual_prompt, style, ratio, image_path, continuity, bible,
+                                    seed=seed, token=data.get('pollinationsKey') or '')
+    elif source == 'cloudflare':
+        generate_cloudflare_image(data['cfAccount'], data['cfToken'], visual_prompt, style,
+                                  ratio, image_path, continuity, bible, seed=seed)
+    else:  # stock-photo providers (Openverse needs no key)
+        key = data.get('pixabayKey') if source == 'pixabay' else data.get('pexelsKey')
+        generate_stock_photo(source, key, visual_prompt, ratio, image_path, seed=seed)
+
+
+def _fetch_scene_picture(job, data, scene_index, scene_no, visual_prompt, image_path,
+                         seed, continuity, progress):
+    """Create one scene's picture through the FREE fallback chain.
+
+    Returns (source_used, was_rescue). Raises the LAST source's error when
+    every available source failed, so the caller can use a placeholder card.
+    Gemini and upload modes are handled by the caller, never here."""
+    chain = _free_chain(data, data.get('imageMode', 'pollinations'))
+    last_error = None
+    for pos, source in enumerate(chain):
+        label = _SOURCE_LABELS[source]
+        if pos == 0:
+            update(job, progress, f'Picture {scene_no}: creating with {label}...')
+        try:
+            if source == 'pollinations' and scene_index:
+                time.sleep(3)  # gentle pace on the free service, to avoid hitting limits
+            _attempt_free_image(source, data, visual_prompt, image_path, seed, continuity)
+        except Exception as exc:
+            last_error = exc
+            if pos + 1 < len(chain):
+                update(job, progress,
+                       f'Picture {scene_no}: {label} failed - trying {_SOURCE_LABELS[chain[pos + 1]]} next...')
+            continue
+        if pos:
+            used = f'{label} photo' if source in ('openverse', 'pixabay', 'pexels') else label
+            update(job, progress,
+                   f'Picture {scene_no}: {_SOURCE_LABELS[chain[0]]} failed — {used} used instead.')
+        return source, pos > 0
+    raise last_error if last_error is not None else RuntimeError('No free image source is available.')
+
+
 def probe_duration(path):
     p = subprocess.run(['ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1',str(path)], capture_output=True,text=True,timeout=30)
     if p.returncode: raise RuntimeError('ffprobe failed: '+p.stderr[-300:])
@@ -835,16 +958,23 @@ def run_job(job, data):
         if mode == 'gemini':
             from google import genai
             client = genai.Client(api_key=data['apiKey'])
-        # All images are generated before encoding. Gemini/Cloudflare errors stay
-        # explicit; a failed FREE image/stock scene falls back to a local card
-        # (counted in the final message) so one flaky reply can't kill the video.
+        # All images are generated before encoding. Gemini errors stay explicit
+        # (its billing problems must never be hidden by a silent fallback, and
+        # Gemini is never used as a fallback for other modes). Every FREE mode
+        # goes through the per-scene FALLBACK CHAIN (see _fetch_scene_picture):
+        # if the chosen source fails, the remaining free sources are tried
+        # before a local card is used. Rescues and cards are both reported in
+        # the final message, so one dead source can no longer turn the whole
+        # video into text cards.
         placeholder_scenes = []
+        rescued_scenes = []  # (scene number, label of the source that saved it)
         veo_clips = data.get('clips', [])
         scene_kinds = []
         for i, scene in enumerate(scenes):
             image_path = work / f'image_{i:04d}.png'
             visual_prompt = edits[i]['prompt'] if edits else scene
-            update(job, 10+int(45*i/len(scenes)), f'Preparing picture {i+1}/{len(scenes)}...')
+            progress = 10+int(45*i/len(scenes))
+            update(job, progress, f'Preparing picture {i+1}/{len(scenes)}...')
             if i < len(veo_clips):
                 scene_kinds.append('veo')  # this scene has a Flow/Veo clip - no image will be generated
                 continue
@@ -854,34 +984,18 @@ def run_job(job, data):
                 generate_gemini_image(client, _normalize_image_model(data.get('imageModel')),
                                       visual_prompt, data.get('style','2D Cartoon'), data.get('ratio','9:16'),
                                       image_path, script, data.get('characterBible',''))
-            elif mode == 'pollinations':
-                if i: time.sleep(3)  # gentle pace on the free service, to avoid hitting limits
-                update(job, 10+int(45*i/len(scenes)), f'FREE picture (Pollinations) {i+1}/{len(scenes)} is being created...')
-                try:
-                    generate_pollinations_image(visual_prompt, data.get('style','2D Cartoon'), data.get('ratio','9:16'),
-                                                image_path, script, data.get('characterBible',''), seed=seed)
-                except Exception:
-                    placeholder_scenes.append(i + 1)
-                    _placeholder_card(scene, data.get('ratio','9:16'), image_path)
-                    update(job, 10+int(45*i/len(scenes)), f'Picture {i+1} could not be created by the free service - a card has been used for that scene, and the video is continuing...')
-            elif mode == 'cloudflare':
-                update(job, 10+int(45*i/len(scenes)), f'FREE picture (Cloudflare FLUX) {i+1}/{len(scenes)} is being created...')
-                generate_cloudflare_image(data['cfAccount'], data['cfToken'],
-                                          visual_prompt, data.get('style','2D Cartoon'), data.get('ratio','9:16'),
-                                          image_path, script, data.get('characterBible',''), seed=seed)
-            elif mode in ('openverse', 'pixabay', 'pexels'):
-                provider_label = {'openverse': 'Openverse', 'pixabay': 'Pixabay', 'pexels': 'Pexels'}[mode]
-                stock_key = data.get('pixabayKey') if mode == 'pixabay' else data.get('pexelsKey')
-                update(job, 10+int(45*i/len(scenes)), f'FREE stock photo ({provider_label}) {i+1}/{len(scenes)} is being fetched...')
-                try:
-                    generate_stock_photo(mode, stock_key, visual_prompt,
-                                         data.get('ratio','9:16'), image_path, seed=seed)
-                except Exception:
-                    placeholder_scenes.append(i + 1)
-                    _placeholder_card(scene, data.get('ratio','9:16'), image_path)
-                    update(job, 10+int(45*i/len(scenes)), f'Picture {i+1} could not be fetched from {provider_label} - a card has been used for that scene, and the video is continuing...')
-            else:
+            elif mode == 'upload':
                 shutil.copyfile(uploads[i%len(uploads)], image_path)
+            else:
+                try:
+                    used_source, was_rescue = _fetch_scene_picture(
+                        job, data, i, i + 1, visual_prompt, image_path, seed, script, progress)
+                    if was_rescue:
+                        rescued_scenes.append((i + 1, _SOURCE_LABELS[used_source]))
+                except Exception:
+                    placeholder_scenes.append(i + 1)
+                    _placeholder_card(scene, data.get('ratio','9:16'), image_path, scene_no=i + 1)
+                    update(job, progress, f'Picture {i+1}: every free source failed - a card has been used for that scene, and the video is continuing...')
             scene_image(image_path, work/f'frame_{i:04d}.jpg', scene, data.get('ratio','9:16'),
                         data.get('captions',True), data.get('captionStyle','bold'))
         update(job, 60, 'Rendering pictures, motion and transitions...')
@@ -964,10 +1078,14 @@ def run_job(job, data):
         p=subprocess.run(cmd,capture_output=True,text=True,timeout=1800)
         if p.returncode: raise RuntimeError('Final FFmpeg error: '+p.stderr[-1200:])
         finish_msg = f'Finished! Narration: {total_duration:.1f}s. Download MP4.'
+        if rescued_scenes:
+            rescue_detail = ', '.join(f'scene {n} via {label}' for n, label in rescued_scenes)
+            finish_msg += (f' NOTE: {len(rescued_scenes)} picture(s) came from a backup source '
+                           f'({rescue_detail}) because the selected source failed for them.')
         if placeholder_scenes:
             finish_msg += (f' NOTE: {len(placeholder_scenes)} scene(s) had FREE images that could not be created '
                            f'(scene {", ".join(str(n) for n in placeholder_scenes)}) - a card was used for them. '
-                           'Please Launch again for those scenes, or try Cloudflare FREE mode.')
+                           'Please Launch again for those scenes, or try another image source.')
         update(job,100,finish_msg,'done','/generated/'+result.name)
     except Exception as exc:
         message=str(exc)
@@ -975,6 +1093,7 @@ def run_job(job, data):
         if data.get('cfToken'): message=message.replace(data['cfToken'],'[REDACTED]')
         if data.get('pixabayKey'): message=message.replace(data['pixabayKey'],'[REDACTED]')
         if data.get('pexelsKey'): message=message.replace(data['pexelsKey'],'[REDACTED]')
+        if data.get('pollinationsKey'): message=message.replace(data['pollinationsKey'],'[REDACTED]')
         update(job,0,message,'error')
 
 
@@ -1070,6 +1189,10 @@ def account_test():
 def launch():
     if not _same_origin(): return jsonify(error='Cross-origin request blocked.'),403
     data = request.form.to_dict()
+    # Optional Pollinations token: used only for this job, never saved to disk.
+    data['pollinationsKey'] = str(data.get('pollinationsKey', '')).strip()
+    if len(data['pollinationsKey']) > 256:
+        return jsonify(error='The Pollinations key length is not valid.'),400
     if data.get('imageMode', 'pollinations') == 'gemini':
         # Connect Gemini: use the saved account's key for this job only.
         account = _load_accounts().get(str(data.get('accountName', '')).strip())
@@ -1350,11 +1473,30 @@ def verify():
     except Exception as exc:
         checks.append({'name': 'Generated folder is writable', 'ok': False, 'detail': str(exc)[:120]})
     try:
-        req = urllib.request.Request('https://image.pollinations.ai/models', headers={'User-Agent': 'AI-Video-Studio-Pro/1.0'})
-        with urllib.request.urlopen(req, timeout=12) as resp:
-            checks.append({'name': 'Pollinations FREE service (internet)', 'ok': resp.status == 200, 'detail': f'HTTP {resp.status}'})
+        req = urllib.request.Request('https://image.pollinations.ai/models',
+                                     headers={'User-Agent': _BROWSER_UA, 'Accept': 'application/json'})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            checks.append({'name': 'Pollinations FREE images', 'ok': resp.status == 200,
+                           'detail': f'Models endpoint reachable (HTTP {resp.status})'})
     except Exception as exc:
-        checks.append({'name': 'Pollinations FREE service (internet)', 'ok': False, 'detail': str(exc)[:120]})
+        checks.append({'name': 'Pollinations FREE images', 'ok': False, 'detail': str(exc)[:120]})
+    try:
+        ov_url = 'https://api.openverse.org/v1/images/?' + urllib.parse.urlencode(
+            {'q': 'nature', 'page_size': 1, 'license_type': 'all'})
+        req = urllib.request.Request(ov_url, headers={'User-Agent': _BROWSER_UA})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            payload = json.loads(resp.read().decode('utf-8'))
+            found = len(payload.get('results') or [])
+            checks.append({'name': 'Openverse FREE stock photos', 'ok': resp.status == 200 and found > 0,
+                           'detail': f'Search works (HTTP {resp.status}, {found} test result)'})
+    except Exception as exc:
+        checks.append({'name': 'Openverse FREE stock photos', 'ok': False, 'detail': str(exc)[:120]})
+    checks.append({'name': 'Pixabay / Pexels stock photos', 'ok': True,
+                   'detail': 'Needs your free key in the form above - it is checked when a job runs.'})
+    checks.append({'name': 'Cloudflare FLUX', 'ok': True,
+                   'detail': 'Needs your Account ID + Token in the form above - checked when a job runs.'})
+    checks.append({'name': 'Gemini (connected account)', 'ok': True,
+                   'detail': 'Use the Test button on the Connect Gemini page to check a saved key.'})
     return jsonify(checks=checks)
 
 
