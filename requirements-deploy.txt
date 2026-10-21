@@ -1,0 +1,6 @@
+flask>=3.0,<4
+edge-tts>=7.0,<8
+pillow>=10.0
+google-genai>=1.0
+cryptography>=42.0
+gunicorn>=21.0,<24

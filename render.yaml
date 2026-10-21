@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: ai-video-studio
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: STUDIO_LAN
+        value: "1"
+      # Password Render dashboard mein khud set karna hai (kam az kam 12 harf).
+      # sync:false ka matlab: ye value repo mein nahi, sirf dashboard mein rahe gi.
+      - key: STUDIO_ACCESS_PASSWORD
+        sync: false
