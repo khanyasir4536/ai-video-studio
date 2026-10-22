@@ -16,6 +16,7 @@ import urllib.request
 import uuid
 import secrets
 import hashlib
+import gc
 from pathlib import Path
 
 import edge_tts
@@ -898,6 +899,27 @@ def dimensions(ratio):
     return {'9:16': (720, 1280), '16:9': (1280, 720), '1:1': (900, 900)}.get(ratio, (720, 1280))
 
 
+def _cap_scene_image(path, ratio):
+    """Downscale an oversized scene image IN PLACE to at most 2x the output
+    frame (aspect preserved, never upscale). Every scene image - AI
+    generations, stock photos, user uploads - funnels through this one
+    choke point in run_job before scene_image() loads it. Source images
+    can be far larger than the frame (a 4000px stock photo is ~50 MB of
+    pixels each time PIL or ffmpeg decodes it), which matters on a 512 MB
+    instance. Files already within the cap are left byte-identical.
+    Best-effort: any failure leaves the original file untouched."""
+    try:
+        w, h = dimensions(ratio)
+        max_w, max_h = 2 * w, 2 * h
+        with Image.open(path) as img:
+            if img.width <= max_w and img.height <= max_h:
+                return
+            img.thumbnail((max_w, max_h), Image.Resampling.LANCZOS)
+            img.save(path)
+    except Exception:
+        pass
+
+
 def scene_image(source, target, text, ratio, captions, caption_style):
     w, h = dimensions(ratio)
     with Image.open(source) as raw:
@@ -1028,7 +1050,8 @@ def _pollinations_fetch(url, headers, output):
     with urllib.request.urlopen(req, timeout=120) as resp:
         data = resp.read()
     with Image.open(io.BytesIO(data)) as img:  # raises if reply is not an image
-        img.convert('RGB').save(output)
+        with img.convert('RGB') as rgb:
+            rgb.save(output)
 
 
 def generate_pollinations_image(scene, style, ratio, output, continuity, character_bible="", seed=42, token=""):
@@ -1127,7 +1150,8 @@ def generate_cloudflare_image(account_id, token, scene, style, ratio, output, co
         raise RuntimeError('Cloudflare did not return an image. Response: ' + str(errors or data)[:300]
                            + ' - Common causes: an incorrect Account ID/token, or the daily free Neurons have run out.')
     with Image.open(io.BytesIO(base64.b64decode(image_b64))) as img:
-        img.convert('RGB').save(output)
+        with img.convert('RGB') as rgb:
+            rgb.save(output)
 
 
 def generate_gemini_image(client, model, scene, style, ratio, output, continuity, character_bible=""):
@@ -1179,7 +1203,8 @@ def generate_gemini_image(client, model, scene, style, ratio, output, continuity
             if isinstance(data, str):  # some SDK versions hand back base64 text
                 data = base64.b64decode(data)
             with Image.open(io.BytesIO(data)) as img:
-                img.convert('RGB').save(output)
+                with img.convert('RGB') as rgb:
+                    rgb.save(output)
             return
         txt = getattr(part, 'text', None)
         if txt:
@@ -1290,7 +1315,8 @@ def _download_image_url(url, output):
     with urllib.request.urlopen(req, timeout=90) as resp:
         data = resp.read()
     with Image.open(io.BytesIO(data)) as img:  # raises if the reply is not an image
-        img.convert('RGB').save(output)
+        with img.convert('RGB') as rgb:
+            rgb.save(output)
 
 
 def generate_stock_photo(provider, api_key, scene_prompt, ratio, output, seed=42):
@@ -1551,19 +1577,26 @@ def _join_xfade(segments, durations, transition_mode, output, transition_picks=N
     """Join uniform scene segments with REAL cross-fade transitions (xfade).
 
     All segments share the same size / fps / codec (they are rendered that
-    way), so they can be chained: [0][1]xfade -> [x1]; [x1][2]xfade -> [x2].
+    way). The join runs SEQUENTIALLY, two files at a time: the accumulated
+    video is blended with the next segment by the single xfade for that
+    junction and re-encoded to a temp file, and the next junction consumes
+    that result. FFmpeg therefore never holds more than two input streams -
+    the previous single filter graph opened EVERY segment at once (one
+    decoder + frame queues per input), which could push a 512 MB instance
+    over its memory limit on many-scene videos and get it OOM-restarted.
 
-    SYNC: the caller renders every segment EXCEPT the last with an extra
-    _XFADE_DURATION of tail frames (duration + 0.5s of source material).
-    The offsets below are the plain narration boundaries:
+    SYNC: identical math to the single-graph version. The caller renders
+    every segment EXCEPT the last with an extra _XFADE_DURATION of tail
+    frames (duration + 0.5s of source material), and junction k uses
         offset_k = sum of durations of segments 0..k
-    Junction k starts blending exactly when scene k's narration slot ends.
-    The blend consumes the previous segment's padded tail while the next
-    scene's own frames roll in from the boundary, so scene k occupies
-    [sum(durations 0..k-1), sum(durations 0..k)] in the output - every
-    scene starts in sync with its narration, and the joined video is
-    ≈ the sum of the narration durations instead of drifting ahead of
-    the voiceover by up to (n-1)*0.5s.
+    (the plain narration boundary). An xfade step's output length is
+    offset + (length of the incoming segment), so the accumulated file
+    after each pairwise step has exactly the length the chained graph had
+    at the same point; the final junction lands the total on
+    sum(durations), scene k occupies [sum(durations 0..k-1),
+    sum(durations 0..k)] in the output, and every scene starts in sync
+    with its narration instead of drifting ahead of the voiceover by up
+    to (n-1)*0.5s.
     'fade' uses a plain fade at every junction; 'mixed' cycles fade /
     fadeblack / smoothleft / dissolve / fadewhite / smoothright. Raises on
     any ffmpeg failure so the caller can fall back to the plain concat
@@ -1573,25 +1606,37 @@ def _join_xfade(segments, durations, transition_mode, output, transition_picks=N
     if n < 2:
         raise ValueError('xfade needs at least two segments.')
     kinds = _xfade_kinds(transition_mode, n - 1, transition_picks)
-    parts = []
-    prev = '0:v'
-    elapsed = 0.0
-    for k in range(n - 1):
-        elapsed += durations[k]
-        offset = elapsed  # narration boundary; the padded tail supplies the overlap
-        out_label = 'vout' if k == n - 2 else f'x{k + 1}'
-        parts.append(f'[{prev}][{k + 1}:v]xfade=transition={kinds[k]}'
-                     f':duration={_XFADE_DURATION}:offset={offset:.3f}[{out_label}]')
-        prev = out_label
-    cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error']
-    for seg in segments:
-        cmd += ['-i', str(seg)]
-    cmd += ['-filter_complex', ';'.join(parts), '-map', '[vout]', '-an',
-            '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '24',
-            '-pix_fmt', 'yuv420p', str(output)]
-    p = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
-    if p.returncode:
-        raise RuntimeError('xfade join failed: ' + p.stderr[-800:])
+    output = Path(output)
+    temps = []
+    try:
+        current = segments[0]
+        elapsed = 0.0
+        for k in range(n - 1):
+            elapsed += durations[k]
+            offset = elapsed  # narration boundary; the padded tail supplies the overlap
+            if k == n - 2:
+                target = output
+            else:
+                target = output.with_name(f'{output.stem}.xf{k}{output.suffix}')
+                temps.append(target)
+            cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
+                   '-i', str(current), '-i', str(segments[k + 1]),
+                   '-filter_complex',
+                   f'[0:v][1:v]xfade=transition={kinds[k]}'
+                   f':duration={_XFADE_DURATION}:offset={offset:.3f}[vout]',
+                   '-map', '[vout]', '-an', '-c:v', 'libx264',
+                   '-preset', 'ultrafast', '-crf', '24',
+                   '-pix_fmt', 'yuv420p', str(target)]
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
+            if p.returncode:
+                raise RuntimeError('xfade join failed: ' + p.stderr[-800:])
+            current = target
+    finally:
+        for t in temps:
+            try:
+                t.unlink()
+            except OSError:
+                pass
 
 
 # --- Timed captions: Karaoke Fill + One Word Pop (ASS burn-in) --------------
@@ -1886,8 +1931,10 @@ def run_job(job, data):
                     placeholder_scenes.append(i + 1)
                     _placeholder_card(scene, data.get('ratio','9:16'), image_path, scene_no=i + 1)
                     update(job, progress, f'Picture {i+1}: every free source failed - a card has been used for that scene, and the video is continuing...')
+            _cap_scene_image(image_path, data.get('ratio','9:16'))
             scene_image(image_path, work/f'frame_{i:04d}.jpg', scene, data.get('ratio','9:16'),
                         cap_on and not ass_ok, frame_style)
+        gc.collect()  # release per-scene PIL buffers before the encode phase
         update(job, 60, 'Rendering pictures, motion and transitions...')
         w,h=dimensions(data.get('ratio','9:16'))
         fps=24
@@ -1966,6 +2013,7 @@ def run_job(job, data):
         # a safety trim. If the xfade run fails for any reason, fall back to
         # the plain concat join (of the slightly longer segments) -
         # transitions must never kill a job.
+        gc.collect()  # segments are on disk now; drop Python-side buffers before the join
         video_args = ['-f','concat','-safe','0','-i',str(concat)]
         if use_xfade:
             update(job, 91, 'Applying transitions between scenes...')
@@ -2202,9 +2250,9 @@ def launch():
                 img.verify()
             file.stream.seek(0)
             with Image.open(file.stream) as img:
-                im=img.convert('RGB')
-                im.thumbnail((2400,2400))
-                im.save(p)
+                with img.convert('RGB') as im:
+                    im.thumbnail((2400,2400))
+                    im.save(p)
         except Exception:
             return jsonify(error='One uploaded picture is invalid.'),400
         uploads.append(p)
