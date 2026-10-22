@@ -4,3 +4,4 @@ pillow>=10.0
 google-genai>=1.0
 cryptography>=42.0
 gunicorn>=21.0,<24
+requests>=2.31

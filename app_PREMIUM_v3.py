@@ -19,8 +19,9 @@ import hashlib
 from pathlib import Path
 
 import edge_tts
-from flask import Flask, jsonify, render_template_string, request, send_from_directory, make_response, Response
+from flask import Flask, jsonify, render_template_string, request, send_from_directory, make_response, Response, g
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageEnhance
+import requests
 
 ROOT = Path(__file__).resolve().parent
 
@@ -76,14 +77,185 @@ app = Flask(__name__)
 LAN_MODE = os.environ.get('STUDIO_LAN') == '1'
 LAN_PASSWORD = os.environ.get('STUDIO_ACCESS_PASSWORD', '')
 
+# --- Per-user accounts + persistent video storage (accounts/cloudinary) -----
+USERS_FILE = ROOT / 'users.json'
+USERS_LOCK = threading.RLock()
+REGISTRY_FILE = ROOT / 'deliverables.json'
+REGISTRY_LOCK = threading.RLock()
+USERNAME_RE = re.compile(r'^[A-Za-z0-9_.-]{3,32}$')
+
+
+def _load_users():
+    try:
+        data = json.loads(USERS_FILE.read_text(encoding='utf-8'))
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_users(users):
+    tmp = USERS_FILE.with_suffix('.tmp')
+    tmp.write_text(json.dumps(users, indent=2), encoding='utf-8')
+    os.replace(tmp, USERS_FILE)
+    if os.name != 'nt':
+        try:
+            os.chmod(USERS_FILE, 0o600)
+        except OSError:
+            pass
+
+
+def _hash_password(password):
+    salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), bytes.fromhex(salt), 200_000)
+    return {'salt': salt, 'hash': dk.hex()}
+
+
+def _verify_password(password, rec):
+    try:
+        dk = hashlib.pbkdf2_hmac('sha256', (password or '').encode('utf-8'), bytes.fromhex(rec['salt']), 200_000)
+        return secrets.compare_digest(dk.hex(), rec['hash'])
+    except Exception:
+        return False
+
+
+def _cu():
+    """Current username ('local' when LAN mode is off)."""
+    return getattr(g, 'user', 'local')
+
+
+def _ca():
+    """True when the current user is an admin."""
+    return getattr(g, 'is_admin', True)
+
+
+def _job_visible(state):
+    owner = (state or {}).get('owner') or 'studio'
+    return _ca() or owner == _cu()
+
+
+def _auth_required():
+    return Response('Authentication required', 401, {'WWW-Authenticate': 'Basic realm="AI Video Studio Pro"'})
+
+
+# --- Cloudinary: finished videos survive Render restarts --------------------
+def _cloudinary_config():
+    cloud = os.environ.get('CLOUDINARY_CLOUD_NAME', '').strip()
+    key = os.environ.get('CLOUDINARY_API_KEY', '').strip()
+    secret = os.environ.get('CLOUDINARY_API_SECRET', '').strip()
+    return (cloud, key, secret) if (cloud and key and secret) else None
+
+
+def _cloudinary_signature(params, secret):
+    body = '&'.join(f'{k}={params[k]}' for k in sorted(params)) + secret
+    return hashlib.sha1(body.encode('utf-8')).hexdigest()
+
+
+def _cloudinary_upload(local_path, public_id):
+    """Uploads a finished MP4 to Cloudinary (signed). Returns secure_url or None."""
+    cfg = _cloudinary_config()
+    if not cfg:
+        return None
+    cloud, key, secret = cfg
+    ts = int(time.time())
+    params = {'public_id': public_id, 'timestamp': ts}
+    sig = _cloudinary_signature(params, secret)
+    try:
+        with open(local_path, 'rb') as fh:
+            r = requests.post(
+                f'https://api.cloudinary.com/v1_1/{cloud}/video/upload',
+                data={'api_key': key, 'timestamp': ts, 'public_id': public_id, 'signature': sig},
+                files={'file': (Path(local_path).name, fh, 'video/mp4')},
+                timeout=600)
+        if r.status_code == 200:
+            return (r.json() or {}).get('secure_url')
+    except Exception:
+        pass
+    return None
+
+
+def _load_registry():
+    try:
+        data = json.loads(REGISTRY_FILE.read_text(encoding='utf-8'))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _save_registry(entries):
+    tmp = REGISTRY_FILE.with_suffix('.tmp')
+    tmp.write_text(json.dumps(entries, indent=1), encoding='utf-8')
+    os.replace(tmp, REGISTRY_FILE)
+
+
+def _persist_video(owner, job, local_path):
+    """Runs after a job finishes: uploads the MP4 to Cloudinary (if configured)
+    and records it in the persistent registry so it survives restarts."""
+    def _go():
+        try:
+            p = Path(local_path)
+            entry = {'job': job, 'owner': owner or 'studio', 'name': p.name,
+                     'size_mb': round(p.stat().st_size / 1048576, 2),
+                     'mtime': time.time(), 'url': '/generated/' + p.name, 'cloud': False}
+            url = _cloudinary_upload(str(p), f'ai-video-studio/{job}')
+            if url:
+                entry['url'] = url
+                entry['cloud'] = True
+            with REGISTRY_LOCK:
+                reg = _load_registry()
+                if not any(e.get('job') == job for e in reg):
+                    reg.append(entry)
+                    _save_registry(reg[-500:])
+        except Exception:
+            pass
+    threading.Thread(target=_go, daemon=True).start()
+
+
+def _backfill_registry():
+    """At startup: register any MP4s already on disk (they belong to the admin)."""
+    try:
+        with REGISTRY_LOCK:
+            reg = _load_registry()
+            names = {e.get('name') for e in reg}
+            changed = False
+            for p in OUT.glob('*.mp4'):
+                if p.name in names:
+                    continue
+                st = p.stat()
+                reg.append({'job': p.stem, 'owner': 'studio', 'name': p.name,
+                            'size_mb': round(st.st_size / 1048576, 2),
+                            'mtime': st.st_mtime, 'url': '/generated/' + p.name,
+                            'cloud': False})
+                changed = True
+            if changed:
+                _save_registry(reg[-500:])
+    except Exception:
+        pass
+
+
+_backfill_registry()
+
+
 @app.before_request
 def lan_access_guard():
     if not LAN_MODE:
         return None
     credentials = request.authorization
-    if not credentials or not secrets.compare_digest(credentials.password or '', LAN_PASSWORD) or not secrets.compare_digest(credentials.username or '', 'studio'):
-        return Response('Authentication required', 401, {'WWW-Authenticate': 'Basic realm="AI Video Studio Pro"'})
-    return None
+    if not credentials:
+        return _auth_required()
+    user = (credentials.username or '').strip()
+    pw = credentials.password or ''
+    # Admin: the original single studio login (username 'studio').
+    if user == 'studio' and LAN_PASSWORD and secrets.compare_digest(pw, LAN_PASSWORD):
+        g.user = 'studio'
+        g.is_admin = True
+        return None
+    # Per-user accounts created by the admin.
+    rec = _load_users().get(user)
+    if rec and _verify_password(pw, rec):
+        g.user = user
+        g.is_admin = bool(rec.get('admin'))
+        return None
+    return _auth_required()
 JOBS = {}
 LOCK = threading.Lock()
 WORK_Q = queue_module.Queue()
@@ -166,6 +338,7 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 <button class="navbtn" data-nav="deliverables" onclick="switchView('deliverables')">✅ Deliverables</button>
 <button class="navbtn" data-nav="flow" onclick="switchView('flow')">🌊 Google Flow / Veo</button>
 <button class="navbtn" data-nav="connect" onclick="switchView('connect')">🔑 Connect Gemini</button>
+<button class="navbtn" data-nav="users" id="usersNav" style="display:none" onclick="switchView('users')">👥 Users</button>
 <button class="navbtn" data-nav="about" onclick="switchView('about')">ℹ️ About / Help</button>
 <button class="navbtn" data-nav="console" onclick="switchView('console')">🖥 Console</button>
 <p class="small" style="margin:16px 6px">FREE images: Pollinations (no key needed), Cloudflare FLUX (free account), or free stock photos — Wikimedia Commons and Openverse (no key), Pixabay and Pexels (free key). Optional: connect your own Gemini account on the Connect Gemini page (saved once, no password).</p>
@@ -235,13 +408,13 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 </div></div>
 </section>
 
-<section class="view" id="view-queue"><div class="card"><h2>📋 Queue — All Jobs</h2><div id="queueList"><p class="small">No jobs yet. Launch a video from the Studio.</p></div></div></section>
+<section class="view" id="view-queue"><div class="card"><h2>📋 Queue — My Jobs</h2><div id="queueList"><p class="small">No jobs yet. Launch a video from the Studio.</p></div></div></section>
 
 <section class="view" id="view-assets"><div class="card"><h2>🖼 Asset Wall — Scene Images</h2><label>Select a job</label><select id="assetsJobSel" onchange="loadAssets()"><option value="">— run a job first —</option></select><div class="assets" id="assetsGrid" style="margin-top:14px"></div></div></section>
 
 <section class="view" id="view-projects"><div class="card"><h2>📁 Projects / Drafts</h2><div id="projectsList"><p class="small">No saved projects.</p></div></div></section>
 
-<section class="view" id="view-deliverables"><div class="card"><h2>✅ Deliverables — Finished Videos</h2><div id="videosList"><p class="small">No finished video yet.</p></div></div></section>
+<section class="view" id="view-deliverables"><div class="card"><h2>✅ Deliverables — Finished Videos</h2><p class="small">Finished videos stay here even after the server restarts — they are saved to secure cloud storage.</p><div id="videosList"><p class="small">No finished video yet.</p></div></div></section>
 
 <section class="view" id="view-flow"><div class="card" style="border-color:#5274ac"><h2>🌊 Google Flow / Veo — Profiles</h2>
 <p class="small"><b>The honest truth:</b> Google Flow has no free official API. On the Flow website (labs.google), only an account with a <b>Google AI Plus / Pro / Ultra plan</b> will work — Veo clips are created using the credits of that plan (Lite ~10, Fast ~20, Quality ~100 credits per clip). That is why Flow is connected in this software as follows: save a profile → <b>Open & Login</b> opens Flow on this PC → sign in yourself and create clips for your scenes (the Prompt Sheet can be downloaded from the Studio page) → download the clips and add them in the Studio under "Veo / Flow scene clips". The software will apply voiceover and captions to those clips and produce the final video.</p>
@@ -264,12 +437,13 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 <p class="small"><b>Google Flow / Veo:</b> you can download a ready-made Prompt Sheet from the Studio, create clips yourself in Google Flow, and add them under "Veo / Flow scene clips" — the studio will add voiceover and captions and finish the video.</p>
 </div></section>
 
+<section class="view" id="view-users"><div class="card"><h2>👥 Users — Accounts</h2><p class="small">Each person logs in with their own username + password and only sees their own queue, videos and projects. Create an account here, then give your friend the website link with their username and password.</p><div class="two"><div><label>Username</label><input id="newUser" placeholder="e.g. ahmed"></div><div><label>Password (min 8 characters)</label><input id="newUserPw" type="password" placeholder="password"></div></div><div class="rowflex" style="margin-top:10px"><button onclick="createUser()">➕ Create account</button></div><div id="usersList" style="margin-top:12px"></div></div></section>
 <section class="view" id="view-console"><div class="card"><h2>🖥 Console — Job Log</h2><label>Select a job</label><select id="consoleJobSel" onchange="showConsole()"><option value="">— select a job —</option></select><div class="logbox" id="consoleLog" style="margin-top:12px">The log will appear here.</div></div></section>
 
 </div></div>
 <script>
 async function api(path,data){const opts={method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data||{})};const r=await fetch(path,opts);const x=await r.json();if(!r.ok)throw Error(x.error||'Request failed');return x;}
-function switchView(name){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));document.getElementById('view-'+name).classList.add('active');document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active',b.dataset.nav===name));if(name==='queue')loadJobs();if(name==='deliverables')loadVideos();if(name==='projects')loadProjects();if(name==='assets')fillJobSelects();if(name==='console')fillJobSelects();if(name==='flow')loadFlowProfiles();}
+function switchView(name){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));document.getElementById('view-'+name).classList.add('active');document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active',b.dataset.nav===name));if(name==='queue')loadJobs();if(name==='deliverables')loadVideos();if(name==='projects')loadProjects();if(name==='assets')fillJobSelects();if(name==='console')fillJobSelects();if(name==='flow')loadFlowProfiles();if(name==='users')loadUsers();}
 function msg(t){document.getElementById('accountMessage').textContent=t;}
 async function refreshAccounts(selected){try{const r=await fetch('/api/accounts');const x=await r.json();const sel=document.getElementById('accountSelect');sel.innerHTML='<option value="">-- Select Gemini account --</option>';for(const a of x.accounts){const opt=document.createElement('option');opt.value=a.name;opt.textContent=a.name;sel.appendChild(opt);}if(selected&&x.accounts.some(a=>a.name===selected))sel.value=selected;chooseAccount();}catch(e){msg(e.message)}}
 function chooseAccount(){const sel=document.getElementById('accountSelect');document.getElementById('accountName').value=sel.value;document.getElementById('accountKey').value='';}
@@ -344,6 +518,10 @@ clearInterval(timer);timer=setInterval(async()=>{try{let q=await fetch('/api/sta
 if(j.state==='done'){clearInterval(timer);b.disabled=false;document.getElementById('result').innerHTML='<p><a href="'+j.url+'" download>⬇ Download Final MP4</a></p><video controls src="'+j.url+'"></video>';loadVideos();}
 if(j.state==='error'){clearInterval(timer);b.disabled=false;document.getElementById('status').textContent='Error: '+j.message;}}catch(e){clearInterval(timer);b.disabled=false;}},1200);
 }catch(e){b.disabled=false;document.getElementById('status').textContent=e.message;}}
+async function loadMe(){try{const r=await fetch('/api/me');const x=await r.json();if(x.admin){document.getElementById('usersNav').style.display='block';}}catch(e){}}
+async function loadUsers(){try{const r=await fetch('/api/admin/users');const x=await r.json();const root=document.getElementById('usersList');if(!r.ok){root.innerHTML='<p class="small">'+(x.error||'Admin only')+'</p>';return;}root.innerHTML=x.users.length?'':'<p class="small">No extra accounts yet.</p>';x.users.forEach(u=>{const d=document.createElement('div');d.className='item';d.innerHTML='<b></b> <span class="small"></span> ';d.querySelector('b').textContent=u.username;const rb=document.createElement('button');rb.className='ghost';rb.style.marginRight='8px';rb.textContent='Reset password';rb.onclick=async()=>{const pw=prompt('New password for '+u.username+' (min 8 characters):');if(!pw)return;const rr=await fetch('/api/admin/users/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u.username,password:pw})});const xx=await rr.json();alert(xx.ok?'Password updated.':('Error: '+(xx.error||'failed')));};const db=document.createElement('button');db.className='danger';db.textContent='Delete';db.onclick=async()=>{if(!confirm('Delete account '+u.username+'? Their videos stay saved.'))return;const rr=await fetch('/api/admin/users/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u.username})});const xx=await rr.json();if(!xx.ok)alert('Error: '+(xx.error||'failed'));loadUsers();};d.appendChild(rb);d.appendChild(db);root.appendChild(d);});}catch(e){}}
+async function createUser(){const u=document.getElementById('newUser').value.trim();const p=document.getElementById('newUserPw').value;try{const r=await fetch('/api/admin/users/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});const x=await r.json();if(!r.ok)throw Error(x.error||'Failed');document.getElementById('newUser').value='';document.getElementById('newUserPw').value='';loadUsers();}catch(e){alert('Error: '+e.message);}}
+loadMe();
 buildPresets();buildExtraStyles();loadVoices();refreshAccounts();loadProjects();loadJobs();
 setInterval(()=>{loadJobs();},8000);
 </script></body></html>
@@ -360,6 +538,7 @@ def update(job, progress, message, state='running', url=None):
         JOBS[job] = {'progress': progress, 'message': message, 'state': state,
                      'url': url if url is not None else old.get('url'),
                      'name': old.get('name', ''), 'created': old.get('created', time.time()),
+                     'owner': old.get('owner', ''),
                      'log': log[-120:]}
 
 
@@ -1253,6 +1432,7 @@ def run_job(job, data):
             if stock_skipped:
                 finish_msg += (' Stock-photo rescue was skipped for those scenes because the selected '
                                'style is not a photo style - a stock photo would not match an illustrated story.')
+        _persist_video(data.get('owner', ''), job, result)
         update(job,100,finish_msg,'done','/generated/'+result.name)
     except Exception as exc:
         message=str(exc)
@@ -1282,17 +1462,23 @@ ACCOUNTS_FILE = ROOT / 'gemini_accounts.json'
 ACCOUNTS_LOCK = threading.RLock()
 
 
-def _load_accounts():
+def _load_account_store():
+    # v2 store: {'__v2__': 1, '<username>': {name: {...}}}. A v1 flat dict of
+    # accounts is migrated to the admin ('studio') on first load.
     try:
         data = json.loads(ACCOUNTS_FILE.read_text(encoding='utf-8'))
-        return data if isinstance(data, dict) else {}
     except Exception:
-        return {}
+        return {'__v2__': 1}
+    if isinstance(data, dict) and data.get('__v2__') == 1:
+        return data
+    if isinstance(data, dict):
+        return {'__v2__': 1, 'studio': data}
+    return {'__v2__': 1}
 
 
-def _save_accounts(accounts):
+def _save_account_store(store):
     temp = ACCOUNTS_FILE.with_suffix('.tmp')
-    temp.write_text(json.dumps(accounts, indent=2), encoding='utf-8')
+    temp.write_text(json.dumps(store, indent=2), encoding='utf-8')
     os.replace(temp, ACCOUNTS_FILE)
     if os.name != 'nt':
         try:
@@ -1301,9 +1487,19 @@ def _save_accounts(accounts):
             pass
 
 
+def _user_accounts():
+    return _load_account_store().get(_cu(), {})
+
+
+def _save_user_accounts(accounts):
+    store = _load_account_store()
+    store[_cu()] = accounts
+    _save_account_store(store)
+
+
 @app.get('/api/accounts')
 def account_list():
-    accounts = _load_accounts()
+    accounts = _user_accounts()
     return jsonify(accounts=[{'name': n, 'model': a.get('model', '')} for n, a in accounts.items()])
 
 
@@ -1315,14 +1511,14 @@ def account_save():
     key = str(d.get('key', '')).strip()
     model = _normalize_image_model(d.get('model', DEFAULT_IMAGE_MODEL))
     with ACCOUNTS_LOCK:
-        accounts = _load_accounts()
+        accounts = _user_accounts()
         existing = accounts.get(name)
         if not key and existing:
             key = existing['key']  # model-only update: keep the already-saved key
         if not name or len(name) > 70 or not key or len(key) > 512 or not re.fullmatch(r'[A-Za-z0-9_.-]{3,100}', model):
             return jsonify(error='Invalid account name, API key or model. An API key is required for a new account.'),400
         accounts[name] = {'key': key, 'model': model}
-        _save_accounts(accounts)
+        _save_user_accounts(accounts)
     return jsonify(ok=True)
 
 
@@ -1331,9 +1527,9 @@ def account_delete():
     if not _same_origin(): return jsonify(error='Cross-origin request blocked.'),403
     name = str((request.get_json(silent=True) or {}).get('name', ''))
     with ACCOUNTS_LOCK:
-        accounts = _load_accounts()
+        accounts = _user_accounts()
         accounts.pop(name, None)
-        _save_accounts(accounts)
+        _save_user_accounts(accounts)
     return jsonify(ok=True)
 
 
@@ -1341,7 +1537,7 @@ def account_delete():
 def account_test():
     if not _same_origin(): return jsonify(error='Cross-origin request blocked.'),403
     name = str((request.get_json(silent=True) or {}).get('name', ''))
-    account = _load_accounts().get(name)
+    account = _user_accounts().get(name)
     if not account: return jsonify(error='Select a saved account.'),404
     try:
         from google import genai
@@ -1364,7 +1560,7 @@ def launch():
         return jsonify(error='The Pollinations key length is not valid.'),400
     if data.get('imageMode', 'pollinations') == 'gemini':
         # Connect Gemini: use the saved account's key for this job only.
-        account = _load_accounts().get(str(data.get('accountName', '')).strip())
+        account = _user_accounts().get(str(data.get('accountName', '')).strip())
         if not account:
             return jsonify(error='Gemini mode: connect and select a saved Gemini account on the Connect Gemini page, or choose one of the free image sources.'),400
         data['apiKey'] = account['key']
@@ -1459,6 +1655,8 @@ def launch():
             JOBS[job]['name'] = (str(data.get('projectName','')).strip()
                                  or str(data.get('script','')).strip()[:48])
             JOBS[job]['state'] = 'queued'
+            JOBS[job]['owner'] = _cu()
+    data['owner'] = _cu()
     WORK_Q.put((job, data))
     return jsonify(job=job)
 
@@ -1466,7 +1664,9 @@ def launch():
 @app.get('/api/status/<job>')
 def status(job):
     with LOCK: state = JOBS.get(job)
-    return jsonify(state) if state else (jsonify(error='Job not found'),404)
+    if not state or not _job_visible(state):
+        return jsonify(error='Job not found'),404
+    return jsonify(state)
 
 
 @app.get('/api/jobs')
@@ -1474,25 +1674,29 @@ def jobs_list():
     with LOCK:
         items = [{'job': j, 'state': s.get('state'), 'progress': s.get('progress'),
                   'message': s.get('message'), 'url': s.get('url'), 'name': s.get('name', ''),
-                  'created': s.get('created', 0)} for j, s in JOBS.items()]
+                  'created': s.get('created', 0)} for j, s in JOBS.items() if _job_visible(s)]
     items.sort(key=lambda x: x['created'], reverse=True)
     return jsonify(jobs=items)
 
 
 @app.get('/api/videos')
 def videos_list():
-    out = []
-    for p in OUT.glob('*.mp4'):
-        st = p.stat()
-        out.append({'name': p.name, 'size_mb': round(st.st_size / 1048576, 2),
-                    'mtime': st.st_mtime, 'url': '/generated/' + p.name})
-    out.sort(key=lambda x: x['mtime'], reverse=True)
-    return jsonify(videos=out)
+    # Persistent registry: finished videos stay listed after server restarts.
+    with REGISTRY_LOCK:
+        entries = [e for e in _load_registry()
+                   if _ca() or (e.get('owner') or 'studio') == _cu()]
+    entries.sort(key=lambda e: e.get('mtime', 0), reverse=True)
+    return jsonify(videos=[{'name': e.get('name', ''), 'size_mb': e.get('size_mb', 0),
+                            'mtime': e.get('mtime', 0), 'url': e.get('url', ''),
+                            'cloud': bool(e.get('cloud'))} for e in entries])
 
 
 @app.get('/api/assets/<job>')
 def assets_list(job):
     if not re.fullmatch(r'[a-f0-9]{32}', job or ''):
+        return jsonify(error='Invalid job'),400
+    with LOCK: _st = JOBS.get(job)
+    if _st and not _job_visible(_st):
         return jsonify(error='Invalid job'),400
     folder = OUT / job
     files = []
@@ -1506,6 +1710,9 @@ def assets_list(job):
 @app.get('/api/asset/<job>/<name>')
 def asset_file(job, name):
     if not re.fullmatch(r'[a-f0-9]{32}', job or '') or not re.fullmatch(r'(frame|image)_\d{4}\.(jpg|png)', name or ''):
+        return jsonify(error='Invalid asset'),400
+    with LOCK: _st = JOBS.get(job)
+    if _st and not _job_visible(_st):
         return jsonify(error='Invalid asset'),400
     return send_from_directory(OUT / job, name, as_attachment=False)
 
@@ -1528,8 +1735,9 @@ def _save_projects(projects):
 def projects_list():
     with PROJECTS_LOCK:
         projects = _load_projects()
+    visible = [p for p in projects if _ca() or (p.get('owner') or 'studio') == _cu()]
     return jsonify(projects=[{'id': p['id'], 'name': p['name'], 'updated': p.get('updated', 0),
-                              'chars': len(p.get('data', {}).get('script', ''))} for p in projects])
+                              'chars': len(p.get('data', {}).get('script', ''))} for p in visible])
 
 
 @app.get('/api/projects/<pid>')
@@ -1538,6 +1746,8 @@ def project_get(pid):
         projects = _load_projects()
     for p in projects:
         if p['id'] == pid:
+            if not _ca() and (p.get('owner') or 'studio') != _cu():
+                break
             return jsonify(project=p)
     return jsonify(error='Project not found'),404
 
@@ -1557,11 +1767,13 @@ def project_save():
         pid = str(d.get('id', '')).strip()
         found = next((p for p in projects if p['id'] == pid), None) if pid else None
         if found:
+            if not _ca() and (found.get('owner') or 'studio') != _cu():
+                return jsonify(error='Project not found.'),404
             found.update({'name': name, 'data': pdata, 'updated': time.time()})
             pid = found['id']
         else:
             pid = uuid.uuid4().hex
-            projects.insert(0, {'id': pid, 'name': name, 'data': pdata, 'updated': time.time()})
+            projects.insert(0, {'id': pid, 'name': name, 'data': pdata, 'updated': time.time(), 'owner': _cu()})
         _save_projects(projects[:100])
     return jsonify(ok=True, id=pid)
 
@@ -1571,8 +1783,11 @@ def project_delete():
     if not _same_origin(): return jsonify(error='Cross-origin request blocked.'),403
     pid = str((request.get_json(silent=True) or {}).get('id', ''))
     with PROJECTS_LOCK:
-        projects = [p for p in _load_projects() if p['id'] != pid]
-        _save_projects(projects)
+        allp = _load_projects()
+        target = next((p for p in allp if p['id'] == pid), None)
+        if target and not _ca() and (target.get('owner') or 'studio') != _cu():
+            return jsonify(error='Project not found.'),404
+        _save_projects([p for p in allp if p['id'] != pid])
     return jsonify(ok=True)
 
 
@@ -1672,6 +1887,17 @@ def verify():
                            'detail': f'Search works (HTTP {resp.status}, {found} test result)'})
     except Exception as exc:
         checks.append({'name': 'Wikimedia Commons FREE stock photos', 'ok': False, 'detail': str(exc)[:120]})
+    cloud_cfg = _cloudinary_config()
+    checks.append({'name': 'Cloudinary video storage', 'ok': bool(cloud_cfg),
+                   'detail': ('Configured - finished videos are uploaded to Cloudinary and stay in Deliverables after restarts.'
+                              if cloud_cfg else
+                              'Not configured - set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET as env vars on Render (free Cloudinary account, no card needed).')})
+    try:
+        n_users = len(_load_users())
+        checks.append({'name': 'User accounts', 'ok': True,
+                       'detail': f"Admin 'studio' + {n_users} extra account(s). Each user only sees their own queue, videos and projects."})
+    except Exception:
+        pass
     checks.append({'name': 'Pixabay / Pexels stock photos', 'ok': True,
                    'detail': 'Needs your free key in the form above - it is checked when a job runs.'})
     checks.append({'name': 'Cloudflare FLUX', 'ok': True,
@@ -1708,12 +1934,26 @@ def voices_catalog():
         return jsonify(voices=fallback, cached=True, note='The catalog could not be downloaded: ' + str(exc)[:120])
 
 
-def _load_flow_profiles():
+def _load_flow_store():
     try:
         data = json.loads(FLOW_PROFILES_FILE.read_text(encoding='utf-8'))
-        return data if isinstance(data, list) else []
     except Exception:
-        return []
+        return {'__v2__': 1}
+    if isinstance(data, dict) and data.get('__v2__') == 1:
+        return data
+    if isinstance(data, list):
+        return {'__v2__': 1, 'studio': data}
+    return {'__v2__': 1}
+
+
+def _load_flow_profiles():
+    return _load_flow_store().get(_cu(), [])
+
+
+def _save_flow_profiles(profiles):
+    store = _load_flow_store()
+    store[_cu()] = profiles
+    FLOW_PROFILES_FILE.write_text(json.dumps(store, indent=1), encoding='utf-8')
 
 
 @app.get('/api/flow/profiles')
@@ -1738,7 +1978,7 @@ def flow_profile_save():
     else:
         pid = uuid.uuid4().hex
         profiles.append({'id': pid, 'name': name, 'note': note})
-    FLOW_PROFILES_FILE.write_text(json.dumps(profiles[:20], indent=1), encoding='utf-8')
+    _save_flow_profiles(profiles[:20])
     return jsonify(ok=True, id=pid)
 
 
@@ -1747,7 +1987,7 @@ def flow_profile_delete():
     if not _same_origin(): return jsonify(error='Cross-origin request blocked.'),403
     pid = str((request.get_json(silent=True) or {}).get('id', ''))
     profiles = [p for p in _load_flow_profiles() if p['id'] != pid]
-    FLOW_PROFILES_FILE.write_text(json.dumps(profiles, indent=1), encoding='utf-8')
+    _save_flow_profiles(profiles)
     return jsonify(ok=True)
 
 
@@ -1767,7 +2007,86 @@ def flow_open():
 def generated(name):
     if '/' in name or '\\' in name or not name.endswith(('.mp4', '.mp3')):
         return jsonify(error='Invalid file'),400
+    if name.endswith('.mp4') and not name.startswith('preview_'):
+        with REGISTRY_LOCK:
+            entry = next((e for e in _load_registry() if e.get('name') == name), None)
+        if entry and not _ca() and (entry.get('owner') or 'studio') != _cu():
+            return jsonify(error='Invalid file'),403
     return send_from_directory(OUT,name,as_attachment=False)
+
+
+@app.get('/api/me')
+def me():
+    return jsonify(user=_cu(), admin=_ca())
+
+
+def _require_admin():
+    if not _ca():
+        return jsonify(error='Admin only.'), 403
+    return None
+
+
+@app.get('/api/admin/users')
+def admin_users_list():
+    denied = _require_admin()
+    if denied: return denied
+    users = _load_users()
+    return jsonify(users=[{'username': u, 'admin': bool(r.get('admin'))} for u, r in sorted(users.items())])
+
+
+@app.post('/api/admin/users/create')
+def admin_user_create():
+    denied = _require_admin()
+    if denied: return denied
+    if not _same_origin(): return jsonify(error='Cross-origin request blocked.'),403
+    d = request.get_json(silent=True) or {}
+    username = str(d.get('username', '')).strip()
+    password = str(d.get('password', ''))
+    if not USERNAME_RE.fullmatch(username):
+        return jsonify(error='Username: 3-32 letters, digits, _ . -'),400
+    if username == 'studio':
+        return jsonify(error="The name 'studio' is reserved for the admin login."),400
+    if len(password) < 8 or len(password) > 128:
+        return jsonify(error='Password must be 8-128 characters.'),400
+    with USERS_LOCK:
+        users = _load_users()
+        if username in users:
+            return jsonify(error='That username already exists.'),400
+        users[username] = _hash_password(password)
+        _save_users(users)
+    return jsonify(ok=True)
+
+
+@app.post('/api/admin/users/delete')
+def admin_user_delete():
+    denied = _require_admin()
+    if denied: return denied
+    if not _same_origin(): return jsonify(error='Cross-origin request blocked.'),403
+    username = str((request.get_json(silent=True) or {}).get('username', '')).strip()
+    with USERS_LOCK:
+        users = _load_users()
+        users.pop(username, None)
+        _save_users(users)
+    return jsonify(ok=True)
+
+
+@app.post('/api/admin/users/reset')
+def admin_user_reset():
+    denied = _require_admin()
+    if denied: return denied
+    if not _same_origin(): return jsonify(error='Cross-origin request blocked.'),403
+    d = request.get_json(silent=True) or {}
+    username = str(d.get('username', '')).strip()
+    password = str(d.get('password', ''))
+    if len(password) < 8 or len(password) > 128:
+        return jsonify(error='Password must be 8-128 characters.'),400
+    with USERS_LOCK:
+        users = _load_users()
+        if username not in users:
+            return jsonify(error='Unknown username.'),404
+        users[username] = _hash_password(password)
+        _save_users(users)
+    return jsonify(ok=True)
 
 
 if __name__ == '__main__':
