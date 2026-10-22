@@ -150,20 +150,28 @@ def _cloudinary_signature(params, secret):
     return hashlib.sha1(body.encode('utf-8')).hexdigest()
 
 
-def _cloudinary_upload(local_path, public_id):
-    """Uploads a finished MP4 to Cloudinary (signed). Returns secure_url or None."""
+def _cloudinary_upload(local_path, public_id, owner=''):
+    """Uploads a finished MP4 to Cloudinary (signed). Returns secure_url or None.
+    When owner is given it is stored as Cloudinary context metadata
+    (context=owner=<user>) so the video keeps its owner even after the local
+    registry file is wiped; context is part of the signed parameter set."""
     cfg = _cloudinary_config()
     if not cfg:
         return None
     cloud, key, secret = cfg
     ts = int(time.time())
     params = {'public_id': public_id, 'timestamp': ts}
+    if owner:
+        params['context'] = f'owner={owner}'
     sig = _cloudinary_signature(params, secret)
+    data = {'api_key': key, 'timestamp': ts, 'public_id': public_id, 'signature': sig}
+    if owner:
+        data['context'] = params['context']
     try:
         with open(local_path, 'rb') as fh:
             r = requests.post(
                 f'https://api.cloudinary.com/v1_1/{cloud}/video/upload',
-                data={'api_key': key, 'timestamp': ts, 'public_id': public_id, 'signature': sig},
+                data=data,
                 files={'file': (Path(local_path).name, fh, 'video/mp4')},
                 timeout=600)
         if r.status_code == 200:
@@ -171,6 +179,72 @@ def _cloudinary_upload(local_path, public_id):
     except Exception:
         pass
     return None
+
+
+def _parse_cloud_time(value):
+    """Cloudinary created_at (ISO8601) -> epoch seconds; 0 if unparsable."""
+    try:
+        from datetime import datetime, timezone
+        dt = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.timestamp()
+    except Exception:
+        return 0
+
+
+_CLOUD_LIST_CACHE = {'at': 0.0, 'entries': []}
+
+
+def _cloudinary_list():
+    """Finished videos listed straight from Cloudinary (Admin API). The local
+    deliverables.json sits on ephemeral disk and is wiped on every restart,
+    but the uploaded MP4s stay in Cloudinary — this is how Deliverables is
+    rebuilt after a restart. Cached for 60s; returns [] on any failure."""
+    cfg = _cloudinary_config()
+    if not cfg:
+        return []
+    now = time.time()
+    if now - _CLOUD_LIST_CACHE['at'] < 60:
+        return _CLOUD_LIST_CACHE['entries']
+    cloud, key, secret = cfg
+    entries = []
+    try:
+        url = (f'https://api.cloudinary.com/v1_1/{cloud}/resources/video/upload'
+               f'?prefix=ai-video-studio/&max_results=100')
+        for _page in range(3):
+            r = requests.get(url, auth=(key, secret), timeout=30)
+            if r.status_code != 200:
+                return []
+            payload = r.json() or {}
+            for res in payload.get('resources') or []:
+                pid = res.get('public_id') or ''
+                if not pid.startswith('ai-video-studio/'):
+                    continue
+                job = pid[len('ai-video-studio/'):]
+                if not job:
+                    continue
+                owner = 'studio'
+                ctx = ((res.get('context') or {}).get('custom') or {})
+                if ctx.get('owner'):
+                    owner = str(ctx['owner'])
+                entries.append({'job': job, 'owner': owner,
+                                'name': res.get('filename') or (job + '.mp4'),
+                                'size_mb': round((res.get('bytes') or 0) / 1048576, 2),
+                                'mtime': _parse_cloud_time(res.get('created_at')),
+                                'url': res.get('secure_url') or '',
+                                'cloud': True})
+            cursor = payload.get('next_cursor')
+            if not cursor:
+                break
+            url = (f'https://api.cloudinary.com/v1_1/{cloud}/resources/video/upload'
+                   f'?prefix=ai-video-studio/&max_results=100'
+                   f'&next_cursor={urllib.parse.quote(str(cursor), safe="")}')
+    except Exception:
+        return []
+    _CLOUD_LIST_CACHE['at'] = now
+    _CLOUD_LIST_CACHE['entries'] = entries
+    return entries
 
 
 def _load_registry():
@@ -187,6 +261,21 @@ def _save_registry(entries):
     os.replace(tmp, REGISTRY_FILE)
 
 
+def _merge_registry_entries(local_entries, cloud_entries):
+    """Merge the local registry with the Cloudinary listing, deduped by job
+    id. The cloud entry wins on duplicates — its URL survives restarts."""
+    merged = {}
+    for e in local_entries or []:
+        jid = e.get('job')
+        if jid:
+            merged[jid] = e
+    for e in cloud_entries or []:
+        jid = e.get('job')
+        if jid:
+            merged[jid] = e
+    return list(merged.values())
+
+
 def _persist_video(owner, job, local_path):
     """Runs after a job finishes: uploads the MP4 to Cloudinary (if configured)
     and records it in the persistent registry so it survives restarts."""
@@ -196,7 +285,7 @@ def _persist_video(owner, job, local_path):
             entry = {'job': job, 'owner': owner or 'studio', 'name': p.name,
                      'size_mb': round(p.stat().st_size / 1048576, 2),
                      'mtime': time.time(), 'url': '/generated/' + p.name, 'cloud': False}
-            url = _cloudinary_upload(str(p), f'ai-video-studio/{job}')
+            url = _cloudinary_upload(str(p), f'ai-video-studio/{job}', entry['owner'])
             if url:
                 entry['url'] = url
                 entry['cloud'] = True
@@ -541,7 +630,7 @@ async function openFlow(){try{await api('/api/flow/open',{});document.getElement
 async function loadJobs(){try{const r=await fetch('/api/jobs');const x=await r.json();const active=x.jobs.filter(j=>j.state==='queued'||j.state==='running').length;const badge=document.getElementById('queueCount');badge.style.display=active?'inline-block':'none';badge.textContent=active;
 const root=document.getElementById('queueList');if(!root)return;root.innerHTML=x.jobs.length?'':'<p class="small">No jobs yet.</p>';
 x.jobs.forEach(j=>{const d=document.createElement('div');d.className='item';d.innerHTML='<b></b> <span class="pill '+j.state+'">'+j.state+'</span> <span class="small"></span>';d.querySelector('b').textContent=j.name||'Video job';d.querySelector('.small').textContent='· '+j.progress+'% · '+(j.message||'');if(j.url){const a=document.createElement('a');a.href=j.url;a.textContent='⬇ Download MP4';a.style.marginLeft='10px';d.appendChild(a);}const c=document.createElement('button');c.textContent='Console';c.className='ghost';c.style.marginLeft='8px';c.onclick=()=>{switchView('console');document.getElementById('consoleJobSel').value=j.job;showConsole();};d.appendChild(c);root.appendChild(d);});}catch(e){}}
-async function fillJobSelects(){try{const r=await fetch('/api/jobs');const x=await r.json();for(const id of ['assetsJobSel','consoleJobSel']){const sel=document.getElementById(id);const cur=sel.value;sel.innerHTML='<option value="">— select a job —</option>';x.jobs.forEach(j=>{const o=document.createElement('option');o.value=j.job;o.textContent=(j.name||j.job.slice(0,8))+' · '+j.state;sel.appendChild(o);});if(cur)sel.value=cur;}}catch(e){}}
+async function fillJobSelects(){try{const r=await fetch('/api/jobs');const x=await r.json();for(const id of ['assetsJobSel','consoleJobSel']){const sel=document.getElementById(id);const cur=sel.value;sel.innerHTML='<option value="">— select a job —</option>';x.jobs.forEach(j=>{if(j.archived)return;const o=document.createElement('option');o.value=j.job;o.textContent=(j.name||j.job.slice(0,8))+' · '+j.state;sel.appendChild(o);});if(cur)sel.value=cur;}}catch(e){}}
 async function loadAssets(){const job=document.getElementById('assetsJobSel').value;const grid=document.getElementById('assetsGrid');grid.innerHTML='';if(!job)return;try{const r=await fetch('/api/assets/'+job);const x=await r.json();const frames=x.files.filter(f=>f.name.startsWith('frame'));const show=frames.length?frames:x.files;show.forEach(f=>{const img=document.createElement('img');img.src=f.url;img.title=f.name;grid.appendChild(img);});if(!show.length)grid.innerHTML='<p class="small">No images have been created for this job yet.</p>';}catch(e){}}
 async function loadVideos(){try{const r=await fetch('/api/videos');const x=await r.json();const root=document.getElementById('videosList');root.innerHTML=x.videos.length?'':'<p class="small">No finished video yet.</p>';x.videos.forEach(v=>{const d=document.createElement('div');d.className='item';d.innerHTML='<b></b> <span class="small"></span> ';d.querySelector('b').textContent=v.name;d.querySelector('.small').textContent='· '+v.size_mb+' MB · '+new Date(v.mtime*1000).toLocaleString();const a=document.createElement('a');a.href=v.url;a.textContent='⬇ Download / Play';d.appendChild(a);root.appendChild(d);});}catch(e){}}
 async function showConsole(){const job=document.getElementById('consoleJobSel').value;const box=document.getElementById('consoleLog');if(!job){box.textContent='Select a job.';return;}try{const r=await fetch('/api/status/'+job);const x=await r.json();box.textContent=(x.log||[]).join('\n')||x.message||'—';}catch(e){box.textContent='Log not found.';}}
@@ -2082,16 +2171,37 @@ def jobs_list():
         items = [{'job': j, 'state': s.get('state'), 'progress': s.get('progress'),
                   'message': s.get('message'), 'url': s.get('url'), 'name': s.get('name', ''),
                   'created': s.get('created', 0)} for j, s in JOBS.items() if _job_visible(s)]
+        live_ids = set(JOBS.keys())
+    # After a restart the in-memory queue is empty, but the finished videos
+    # still exist (local registry / Cloudinary) — surface each as an archived
+    # done job so the user can still find and download it from the Queue page.
+    cloud_entries = _cloudinary_list()
+    with REGISTRY_LOCK:
+        merged = _merge_registry_entries(_load_registry(), cloud_entries)
+    for e in merged:
+        jid = e.get('job')
+        if not jid or jid in live_ids:
+            continue
+        if not (_ca() or (e.get('owner') or 'studio') == _cu()):
+            continue
+        items.append({'job': jid, 'state': 'done', 'progress': 100,
+                      'message': 'Finished', 'url': e.get('url', ''),
+                      'name': e.get('name', ''), 'created': e.get('mtime', 0),
+                      'archived': True})
     items.sort(key=lambda x: x['created'], reverse=True)
     return jsonify(jobs=items)
 
 
 @app.get('/api/videos')
 def videos_list():
-    # Persistent registry: finished videos stay listed after server restarts.
+    # Local registry merged with the Cloudinary listing: finished videos stay
+    # listed after server restarts (the local file is wiped, the cloud
+    # copies stay). The cloud entry wins on duplicates — its URL survives.
+    cloud_entries = _cloudinary_list()
     with REGISTRY_LOCK:
-        entries = [e for e in _load_registry()
-                   if _ca() or (e.get('owner') or 'studio') == _cu()]
+        merged = _merge_registry_entries(_load_registry(), cloud_entries)
+    entries = [e for e in merged
+               if _ca() or (e.get('owner') or 'studio') == _cu()]
     entries.sort(key=lambda e: e.get('mtime', 0), reverse=True)
     return jsonify(videos=[{'name': e.get('name', ''), 'size_mb': e.get('size_mb', 0),
                             'mtime': e.get('mtime', 0), 'url': e.get('url', ''),
