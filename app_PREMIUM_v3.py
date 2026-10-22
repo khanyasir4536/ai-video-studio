@@ -150,14 +150,19 @@ def _cloudinary_signature(params, secret):
     return hashlib.sha1(body.encode('utf-8')).hexdigest()
 
 
-def _cloudinary_upload(local_path, public_id, owner=''):
-    """Uploads a finished MP4 to Cloudinary (signed). Returns secure_url or None.
+def _cloudinary_upload_attempt(local_path, public_id, owner=''):
+    """ONE signed upload attempt. Returns (secure_url, http_status, error_text):
+    secure_url is set only on HTTP 200; http_status is None when the request
+    itself failed (network error) and error_text carries the exception or
+    Cloudinary's own error message. Never raises, never logs credentials.
     When owner is given it is stored as Cloudinary context metadata
     (context=owner=<user>) so the video keeps its owner even after the local
-    registry file is wiped; context is part of the signed parameter set."""
+    registry file is wiped; context is part of the signed parameter set.
+    With owner='' the request is byte-identical to the original pre-context
+    upload shape."""
     cfg = _cloudinary_config()
     if not cfg:
-        return None
+        return None, None, 'cloud storage not configured'
     cloud, key, secret = cfg
     ts = int(time.time())
     params = {'public_id': public_id, 'timestamp': ts}
@@ -174,11 +179,27 @@ def _cloudinary_upload(local_path, public_id, owner=''):
                 data=data,
                 files={'file': (Path(local_path).name, fh, 'video/mp4')},
                 timeout=600)
-        if r.status_code == 200:
-            return (r.json() or {}).get('secure_url')
+    except Exception as exc:
+        return None, None, f'{type(exc).__name__}: {exc}'
+    if r.status_code == 200:
+        try:
+            return (r.json() or {}).get('secure_url'), 200, ''
+        except Exception as exc:
+            return None, 200, f'unparsable response: {exc}'
+    err = ''
+    try:
+        err = ((r.json() or {}).get('error') or {}).get('message') or ''
     except Exception:
-        pass
-    return None
+        err = (getattr(r, 'text', '') or '')[:200]
+    return None, r.status_code, err
+
+
+def _cloudinary_upload(local_path, public_id, owner=''):
+    """Uploads a finished MP4 to Cloudinary (signed, single attempt).
+    Returns secure_url or None. Kept as the simple entry point; the job-end
+    persist path uses _cloudinary_upload_attempt for its retry ladder."""
+    url, _status, _err = _cloudinary_upload_attempt(local_path, public_id, owner)
+    return url
 
 
 def _parse_cloud_time(value):
@@ -200,7 +221,9 @@ def _cloudinary_list():
     """Finished videos listed straight from Cloudinary (Admin API). The local
     deliverables.json sits on ephemeral disk and is wiped on every restart,
     but the uploaded MP4s stay in Cloudinary — this is how Deliverables is
-    rebuilt after a restart. Cached for 60s; returns [] on any failure."""
+    rebuilt after a restart. Cached for 60s; returns [] on any failure.
+    context=true is requested so each video's stored owner comes back with
+    the listing — without it Cloudinary omits the context metadata."""
     cfg = _cloudinary_config()
     if not cfg:
         return []
@@ -211,10 +234,11 @@ def _cloudinary_list():
     entries = []
     try:
         url = (f'https://api.cloudinary.com/v1_1/{cloud}/resources/video/upload'
-               f'?prefix=ai-video-studio/&max_results=100')
+               f'?prefix=ai-video-studio/&max_results=100&context=true')
         for _page in range(3):
             r = requests.get(url, auth=(key, secret), timeout=30)
             if r.status_code != 200:
+                print(f'[cloudinary-list] HTTP {r.status_code} — local entries only', flush=True)
                 return []
             payload = r.json() or {}
             for res in payload.get('resources') or []:
@@ -238,10 +262,12 @@ def _cloudinary_list():
             if not cursor:
                 break
             url = (f'https://api.cloudinary.com/v1_1/{cloud}/resources/video/upload'
-                   f'?prefix=ai-video-studio/&max_results=100'
+                   f'?prefix=ai-video-studio/&max_results=100&context=true'
                    f'&next_cursor={urllib.parse.quote(str(cursor), safe="")}')
-    except Exception:
+    except Exception as exc:
+        print(f'[cloudinary-list] failed: {type(exc).__name__}: {exc} — local entries only', flush=True)
         return []
+    print(f'[cloudinary-list] HTTP 200 — {len(entries)} video(s)', flush=True)
     _CLOUD_LIST_CACHE['at'] = now
     _CLOUD_LIST_CACHE['entries'] = entries
     return entries
@@ -276,27 +302,95 @@ def _merge_registry_entries(local_entries, cloud_entries):
     return list(merged.values())
 
 
+_PERSIST_BACKOFF = (15, 45)  # seconds to wait before persist attempts 2 and 3
+
+
 def _persist_video(owner, job, local_path):
-    """Runs after a job finishes: uploads the MP4 to Cloudinary (if configured)
-    and records it in the persistent registry so it survives restarts."""
-    def _go():
-        try:
-            p = Path(local_path)
-            entry = {'job': job, 'owner': owner or 'studio', 'name': p.name,
-                     'size_mb': round(p.stat().st_size / 1048576, 2),
-                     'mtime': time.time(), 'url': '/generated/' + p.name, 'cloud': False}
-            url = _cloudinary_upload(str(p), f'ai-video-studio/{job}', entry['owner'])
+    """Runs SYNCHRONOUSLY at the end of a job (inside the job's own execution
+    path — no detached thread): records the finished MP4 in the local
+    registry and, when cloud storage is configured, uploads it to Cloudinary
+    with up to 3 attempts so the video survives server restarts.
+
+    Attempt ladder: attempt 1 carries the context owner tag; whenever an
+    attempt fails with an HTTP 4xx the NEXT attempt flips shape (with
+    context -> without context — the proven pre-context upload shape — and
+    back), while a network/5xx failure retries with the same shape. Waits
+    _PERSIST_BACKOFF seconds between attempts. Every step is printed to
+    stdout (visible in the server logs; never any credentials).
+
+    Returns True when the video is saved to the cloud, False when cloud
+    saving was configured but all attempts failed, and None when cloud
+    storage is not configured (local-only, as before this feature)."""
+    p = Path(local_path)
+    entry_owner = owner or 'studio'
+    try:
+        size_mb = round(p.stat().st_size / 1048576, 2)
+    except Exception as exc:
+        print(f'[persist] job {job}: cannot read {p.name} ({type(exc).__name__}: {exc}) — nothing recorded', flush=True)
+        return None
+    entry = {'job': job, 'owner': entry_owner, 'name': p.name,
+             'size_mb': size_mb, 'mtime': time.time(),
+             'url': '/generated/' + p.name, 'cloud': False}
+    configured = _cloudinary_config() is not None
+    cloud_url = None
+    if not configured:
+        print(f'[persist] job {job}: cloud storage not configured — local copy only ({p.name}, {size_mb} MB)', flush=True)
+    else:
+        public_id = f'ai-video-studio/{job}'
+        print(f'[persist] job {job}: saving {p.name} ({size_mb} MB) to cloud storage as {public_id}', flush=True)
+        with_context = True
+        for attempt in (1, 2, 3):
+            if attempt > 1:
+                delay = _PERSIST_BACKOFF[attempt - 2]
+                if delay:
+                    time.sleep(delay)
+            url, status, err = _cloudinary_upload_attempt(
+                str(p), public_id, entry_owner if with_context else '')
+            shape = 'with context' if with_context else 'without context'
             if url:
-                entry['url'] = url
-                entry['cloud'] = True
-            with REGISTRY_LOCK:
-                reg = _load_registry()
-                if not any(e.get('job') == job for e in reg):
-                    reg.append(entry)
-                    _save_registry(reg[-500:])
-        except Exception:
-            pass
-    threading.Thread(target=_go, daemon=True).start()
+                print(f'[persist] job {job}: attempt {attempt}/3 ({shape}) succeeded — {public_id}', flush=True)
+                cloud_url = url
+                break
+            detail = f'HTTP {status}' if status is not None else 'request failed'
+            if err:
+                detail += f' — {err}'
+            print(f'[persist] job {job}: attempt {attempt}/3 ({shape}) failed: {detail}', flush=True)
+            if status is not None and 400 <= status < 500:
+                # A 4xx blames the request shape (e.g. the context parameter):
+                # flip to the other shape for the next attempt.
+                with_context = not with_context
+        if not cloud_url:
+            print(f'[persist] job {job}: FAILED to save to cloud storage after 3 attempts — local copy only', flush=True)
+    if cloud_url:
+        entry['url'] = cloud_url
+        entry['cloud'] = True
+    try:
+        with REGISTRY_LOCK:
+            reg = _load_registry()
+            if not any(e.get('job') == job for e in reg):
+                reg.append(entry)
+                _save_registry(reg[-500:])
+    except Exception as exc:
+        print(f'[persist] job {job}: registry write failed: {type(exc).__name__}: {exc}', flush=True)
+    if not configured:
+        return None
+    return bool(cloud_url)
+
+
+def _finalize_job(job, owner, result, finish_msg):
+    """Last step of a successful job: persist the finished video FIRST
+    (synchronously, with retries), note the cloud outcome in the final
+    message, and only then mark the job done — so a job that shows 'done'
+    always has its registry entry (and, when configured, its cloud copy)
+    already in place."""
+    cloud_state = _persist_video(owner, job, result)
+    if cloud_state is True:
+        finish_msg += ' Saved to cloud storage ✓'
+    elif cloud_state is False:
+        finish_msg += (' WARNING: this video could NOT be saved to cloud storage — '
+                       'download it NOW; it will be lost when the server restarts.')
+    update(job, 100, finish_msg, 'done', '/generated/' + result.name)
+    return finish_msg
 
 
 def _backfill_registry():
@@ -1921,8 +2015,7 @@ def run_job(job, data):
                 finish_msg += (' Stock-photo rescue was skipped for those scenes because the selected '
                                'style is not a photo style - a stock photo would not match an illustrated story.')
         finish_msg += captions_note
-        _persist_video(data.get('owner', ''), job, result)
-        update(job,100,finish_msg,'done','/generated/'+result.name)
+        _finalize_job(job, data.get('owner', ''), result, finish_msg)
     except Exception as exc:
         message=str(exc)
         if data.get('apiKey'): message=message.replace(data['apiKey'],'[REDACTED]')
