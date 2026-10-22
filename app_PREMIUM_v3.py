@@ -326,6 +326,24 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 .presets{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:9px}.preset{background:#1a2944;border:1px solid #36578e;border-radius:11px;padding:12px 8px;text-align:center;cursor:pointer}.preset .em{font-size:26px;display:block;margin-bottom:5px}.preset span{font-size:12px;color:#dbe8ff}
 .vtabs{display:flex;gap:7px;flex-wrap:wrap;margin:8px 0}.vtab{background:#1a2944;padding:8px 13px;min-height:38px;font-weight:normal}.vtab.active{background:#4d83ff}
 .logbox{background:#050a14;border:1px solid #2b3c59;border-radius:10px;padding:13px;font:12px monospace;white-space:pre-wrap;max-height:420px;overflow:auto;line-height:1.7}
+.capcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(126px,1fr));gap:9px;margin:8px 0 10px}
+.capcard{background:#0c172b;border:2px solid #344869;border-radius:11px;padding:12px 8px 9px;min-height:88px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;cursor:pointer;color:#fff}
+.capcard:hover{border-color:#5274ac}.capcard.active{border-color:#f5c542;box-shadow:0 0 0 2px #f5c54244}
+.capsample{font-size:16px;line-height:1.3;text-align:center}
+.capname{font-size:11px;color:#9bb0d1}
+.capprev{background:linear-gradient(160deg,#1d2c4c,#0a1322 55%,#16263f);border:1px solid #344869;border-radius:11px;min-height:112px;display:flex;align-items:center;justify-content:center;padding:18px;text-align:center}
+.capprev-sample{font-size:31px;line-height:1.25}
+.cs-simple{color:#fff;font-weight:700;text-shadow:2px 2px 0 #000,-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000}
+.cs-green{color:#60ff84;font-weight:700;text-shadow:2px 2px 0 #000}
+.cs-comic{color:#ffe65c;font-weight:900;text-transform:uppercase;text-shadow:2px 2px 0 #000,-1px -1px 0 #000,1px 1px 0 #000}
+.cs-highlight{background:#ffdd00;color:#0b0b0b;font-weight:800;padding:2px 8px;border-radius:3px}
+.cs-karaoke{color:#fff;font-weight:800;text-shadow:2px 2px 0 #000}.cs-karaoke .kw{color:#ffe600}
+.cs-box{background:rgba(3,6,12,.88);color:#fff;font-weight:700;padding:4px 10px;border-radius:7px}
+.cs-bold{background:rgba(3,6,12,.55);color:#fff;font-weight:800;padding:4px 10px;border-radius:7px;text-shadow:1px 1px 0 #000}
+.cs-pop{color:#fff;font-weight:900;font-size:1.75em;text-shadow:3px 3px 0 #000;letter-spacing:1px}
+.cs-neon{color:#5eeaff;font-weight:800;text-shadow:0 0 7px #22d3ee,0 0 17px #22d3ee,2px 2px 0 #02131a}
+.cs-minimal{color:#dfe8fa;font-weight:400;font-size:.85em}
+.cs-off{color:#7d92b5}
 @media(max-width:900px){.layout{flex-direction:column}.side{width:100%;flex:none;height:auto;position:static;display:flex;flex-wrap:wrap;gap:4px;align-items:center}.side h1{width:100%}.navbtn{width:auto}.grid,.two,.three{grid-template-columns:1fr}.main{padding:14px 10px}}
 </style></head>
 <body><div class="layout">
@@ -359,7 +377,8 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 <div class="two"><input id="writerTopic" placeholder="e.g. A boy who wants a phone but has no money"><select id="writerLang"><option>English</option><option>Urdu</option><option>Hindi</option><option>Roman Urdu</option></select></div>
 <div class="rowflex" style="margin-top:10px"><button type="button" class="gold" onclick="writeScript()">✍ FREE AI Writer — Create Script</button></div>
 <label>Or paste your own script</label><textarea id="script" style="min-height:210px" placeholder="Paste your ready script here. One paragraph per scene works best."></textarea>
-<p class="small">The video length is determined automatically by the narration. Each paragraph = one scene = one image.</p></div>
+<p class="small">The video length is determined automatically by the narration. With sentence splitting, the picture changes with every spoken sentence.</p>
+<label>Scene split</label><select id="sceneSplit"><option value="sentences">Sentences (recommended) — one scene per spoken sentence</option><option value="lines">Lines (old way) — paragraphs / groups of 3 sentences</option></select></div>
 
 <div class="card"><h2>2 · Scene Timeline & Character</h2>
 <label>Character Bible / Consistent Character</label><textarea id="characterBible" style="min-height:88px" placeholder="Example: Ahmed, 10 years old, short black hair, green shalwar kameez, kind smile. Keep same look in every scene."></textarea>
@@ -393,10 +412,17 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 <label>Upload background music (optional; it will be mixed in automatically at a low volume)</label><input id="musicFile" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg"></div>
 
 <div class="card"><h2>5 · Motion, Transitions & Captions</h2>
-<div class="two"><div><label>Camera motion</label><select id="motion"><option value="pan">Pan (left → right)</option><option value="zoomin">Zoom In</option><option value="zoomout">Zoom Out</option><option value="off">Static (fastest)</option></select></div>
-<div><label>Transitions</label><select id="transitions"><option value="mixed">Mixed (fade + cuts)</option><option value="fade">Fade</option><option value="cut">Hard cut (fastest)</option></select></div></div>
+<div class="two"><div><label>Camera motion</label><select id="motion"><option value="studio">Studio</option><option value="kenburns">Ken Burns (slow zoom + drift)</option><option value="zoomin">Slow zoom in</option><option value="zoomout">Slow zoom out</option><option value="panleft">Pan left</option><option value="panright">Pan right</option><option value="drone">Drone rise</option><option value="crash">Crash zoom (snap and hold)</option><option value="off">No motion</option><option value="mix">Mix of all</option></select></div>
+<div><label>Transitions</label><select id="transitions" onchange="toggleTransPicks()"><option value="cut">Hard cut</option><option value="crossfade">Crossfade</option><option value="dipblack">Dip to black</option><option value="whiteflash">White flash</option><option value="slide">Smooth slide</option><option value="glitch">Glitch (pixels)</option><option value="glow">Dreamy glow</option><option value="zoompunch">Zoom punch</option><option value="mixed" selected>Mix of all</option><option value="several">Several together (tick below)</option></select></div></div>
+<div id="transPicks" style="display:none"><label>Tick the transitions to rotate through (in this order)</label><div class="rowflex">
+<label class="check"><input type="checkbox" name="tpick" value="crossfade"> Crossfade</label><label class="check"><input type="checkbox" name="tpick" value="dipblack"> Dip to black</label><label class="check"><input type="checkbox" name="tpick" value="whiteflash"> White flash</label><label class="check"><input type="checkbox" name="tpick" value="slide"> Smooth slide</label><label class="check"><input type="checkbox" name="tpick" value="glitch"> Glitch (pixels)</label><label class="check"><input type="checkbox" name="tpick" value="glow"> Dreamy glow</label><label class="check"><input type="checkbox" name="tpick" value="zoompunch"> Zoom punch</label>
+</div></div>
 <label class="check"><input id="captions" type="checkbox" checked> Add captions</label>
-<label>Caption style</label><select id="captionStyle"><option value="bold">Bold Shorts</option><option value="highlight">Word Highlight (yellow)</option><option value="comic">Bold Comic</option><option value="green">Simple Green</option><option value="minimal">Minimal</option><option value="box">Boxed</option></select></div>
+<label>Caption style — tap a card to choose it and preview it below</label>
+<select id="captionStyle" style="display:none"><option value="bold">Bold Shorts</option><option value="simple">Simple</option><option value="green">Simple Green</option><option value="comic">Bold Comic</option><option value="highlight">Word Highlight</option><option value="karaoke">Karaoke Fill</option><option value="box">Boxed</option><option value="pop">One Word Pop</option><option value="neon">Neon Glow</option><option value="minimal">Minimal</option><option value="off">Off</option></select>
+<div class="capcards" id="captionCards"></div>
+<div class="capprev" id="captionPreview"></div>
+<p class="small">The preview shows the sample words in the selected style. Karaoke Fill highlights every word as it is spoken; One Word Pop shows one big word at a time in the middle.</p></div>
 
 <button class="primary" id="launch" onclick="launch(false)">🚀 LAUNCH FULL VIDEO</button>
 <div class="rowflex" style="margin-top:10px"><button type="button" class="ghost" onclick="launch(true)" style="flex:1">➕ Add to Queue</button><button type="button" class="ghost" onclick="verifySystem()" style="flex:1">✔ Verify System</button></div>
@@ -451,7 +477,18 @@ async function saveAccount(){const name=document.getElementById('accountName').v
 async function deleteAccount(){const name=document.getElementById('accountSelect').value;if(!name)return msg('Select an account.');if(!confirm('Delete Gemini account '+name+'?'))return;try{await api('/api/accounts/delete',{name});await refreshAccounts();msg('Account deleted.');}catch(e){msg(e.message)}}
 async function testAccount(){const name=document.getElementById('accountSelect').value;if(!name)return msg('Select an account.');msg('Checking Gemini API key...');try{const x=await api('/api/accounts/test',{name});msg(x.message)}catch(e){msg('Gemini test failed: '+e.message)}}
 let sceneEdits=[];
-function sceneSplit(script){const paras=script.trim().split(/\n\s*\n/).map(s=>s.trim()).filter(Boolean);if(paras.length>1)return paras;const sentences=script.trim().split(/(?<=[.!?।؟])\s+/);let result=[];for(let i=0;i<sentences.length;i+=3)result.push(sentences.slice(i,i+3).join(' '));return result.filter(Boolean);}
+function sceneSplitLines(script){const paras=script.trim().split(/\n\s*\n/).map(s=>s.trim()).filter(Boolean);if(paras.length>1)return paras;const sentences=script.trim().split(/(?<=[.!?।؟])\s+/);let result=[];for(let i=0;i<sentences.length;i+=3)result.push(sentences.slice(i,i+3).join(' '));return result.filter(Boolean);}
+function sceneSplitSentences(script){let units=[];for(const line of script.split(/\n/)){const t=line.trim();if(!t)continue;for(const q of t.split(/(?<=[.!?…।؟])\s+/)){const s=q.trim();if(s)units.push(s);}}
+let scenes=[],carry='';for(const u of units){const cur=carry?carry+' '+u:u;if(cur.split(/\s+/).length<3){carry=cur;continue;}scenes.push(cur);carry='';}
+if(carry){if(scenes.length)scenes[scenes.length-1]+=' '+carry;else scenes.push(carry);}
+let out=[];for(const s of scenes){if(s.length<=240){out.push(s);continue;}
+const pieces=s.split(/(?<=[,;])\s+/).map(x=>x.trim()).filter(Boolean);let buf='';
+for(const pc of pieces){if(pc.length>240){if(buf){out.push(buf);buf='';}let wb='';for(const w of pc.split(/\s+/)){const cand=wb?wb+' '+w:w;if(cand.length<=240)wb=cand;else{if(wb)out.push(wb);wb=w;}}buf=wb;continue;}
+const cand=buf?buf+' '+pc:pc;if(cand.length<=240)buf=cand;else{out.push(buf);buf=pc;}}
+if(buf)out.push(buf);}
+scenes=out;while(scenes.length>300){let bi=0,bs=Infinity;for(let i=0;i<scenes.length-1;i++){const v=scenes[i].length+scenes[i+1].length;if(v<bs){bs=v;bi=i;}}scenes.splice(bi,2,scenes[bi]+' '+scenes[bi+1]);}
+return scenes;}
+function sceneSplit(script){const sel=document.getElementById('sceneSplit');return(sel&&sel.value==='lines')?sceneSplitLines(script):sceneSplitSentences(script);}
 function previewScenes(){const script=document.getElementById('script').value.trim();if(!script){alert('Paste a script first.');return;}const scenes=sceneSplit(script);if(scenes.length>300){alert('Maximum 300 scenes per video.');return;}sceneEdits=scenes.map(n=>({narration:n,prompt:n}));drawTimeline();}
 function resetSceneEdits(){sceneEdits=[];document.getElementById('sceneTimeline').replaceChildren();document.getElementById('sceneInfo').textContent='Scene edits reset.';}
 function drawTimeline(){const root=document.getElementById('sceneTimeline');root.replaceChildren();document.getElementById('sceneInfo').textContent=sceneEdits.length+' scenes · Edit the narration and visual prompt separately.';sceneEdits.forEach((scene,i)=>{const card=document.createElement('div');card.style.cssText='border:1px solid #344869;border-radius:10px;padding:12px;margin:10px 0;background:#0c172b';const title=document.createElement('strong');title.textContent='Scene '+(i+1);card.appendChild(title);for(const [key,label] of [['narration','Narration (spoken)'],['prompt','AI image / Flow prompt (visual only)']]){const l=document.createElement('label');l.textContent=label;const t=document.createElement('textarea');t.style.minHeight='80px';t.value=scene[key];t.addEventListener('input',()=>{sceneEdits[i][key]=t.value;});card.appendChild(l);card.appendChild(t);}root.appendChild(card);});}
@@ -480,9 +517,15 @@ renderVoices('All');}
 function toggleFav(){const v=document.getElementById('voice').value;if(!v)return;let f=favs();if(f.includes(v))f=f.filter(x=>x!==v);else f.push(v);localStorage.setItem('favVoices',JSON.stringify(f));renderVoices(currentVoiceFilter);}
 let previewAudio=null;
 async function previewVoice(){const v=document.getElementById('voice').value;if(!v)return;const m=document.getElementById('voiceMsg');m.textContent='Generating preview...';try{const x=await api('/api/voice-preview',{voice:v});if(previewAudio)previewAudio.pause();previewAudio=new Audio(x.url);previewAudio.play();m.textContent='Playing preview.';}catch(e){m.textContent='Preview error: '+e.message;}}
-function collectSettings(){return{script:document.getElementById('script').value,characterBible:document.getElementById('characterBible').value,style:document.querySelector('input[name=style]:checked').value,voice:document.getElementById('voice').value,ratio:document.getElementById('ratio').value,speed:document.getElementById('speed').value,imageMode:document.getElementById('imageMode').value,transitions:document.getElementById('transitions').value,motion:document.getElementById('motion').value,captionStyle:document.getElementById('captionStyle').value,captions:document.getElementById('captions').checked};}
+const CAP_STYLES=[['bold','Bold Shorts'],['simple','Simple'],['green','Simple Green'],['comic','Bold Comic'],['highlight','Word Highlight'],['karaoke','Karaoke Fill'],['box','Boxed'],['pop','One Word Pop'],['neon','Neon Glow'],['minimal','Minimal'],['off','Off']];
+function capSampleHTML(v){if(v==='karaoke')return 'Imagine <span class="kw">this,</span>';if(v==='pop')return 'THIS';if(v==='off')return 'No captions';return 'Imagine this,';}
+function buildCaptionCards(){const root=document.getElementById('captionCards');if(!root)return;root.innerHTML='';CAP_STYLES.forEach(function(pair){const v=pair[0];const b=document.createElement('button');b.type='button';b.className='capcard';b.dataset.cap=v;b.innerHTML='<span class="capsample cs-'+v+'">'+capSampleHTML(v)+'</span><span class="capname">'+pair[1]+'</span>';b.onclick=function(){pickCaption(v);};root.appendChild(b);});syncCaptionUI();}
+function pickCaption(v){document.getElementById('captionStyle').value=v;document.getElementById('captions').checked=(v!=='off');syncCaptionUI();}
+function syncCaptionUI(){const sel=document.getElementById('captionStyle');if(!sel)return;const v=sel.value||'bold';document.querySelectorAll('.capcard').forEach(function(c){c.classList.toggle('active',c.dataset.cap===v);});const pv=document.getElementById('captionPreview');if(pv)pv.innerHTML='<span class="capprev-sample cs-'+v+'">'+capSampleHTML(v)+'</span>';}
+function toggleTransPicks(){const t=document.getElementById('transitions');const row=document.getElementById('transPicks');if(t&&row)row.style.display=(t.value==='several')?'block':'none';}
+function collectSettings(){return{script:document.getElementById('script').value,characterBible:document.getElementById('characterBible').value,style:document.querySelector('input[name=style]:checked').value,voice:document.getElementById('voice').value,ratio:document.getElementById('ratio').value,speed:document.getElementById('speed').value,imageMode:document.getElementById('imageMode').value,transitions:document.getElementById('transitions').value,transitionPicks:[...document.querySelectorAll('input[name=tpick]:checked')].map(c=>c.value).join(','),sceneSplit:document.getElementById('sceneSplit').value,motion:document.getElementById('motion').value,captionStyle:document.getElementById('captionStyle').value,captions:document.getElementById('captions').checked};}
 function applySettings(s){if(!s)return;document.getElementById('script').value=s.script||'';document.getElementById('characterBible').value=s.characterBible||'';const r=document.querySelector('input[name=style][value="'+s.style+'"]');if(r)r.checked=true;if(s.voice){const sel=document.getElementById('voice');const o=document.createElement('option');o.value=s.voice;o.textContent=s.voice;sel.appendChild(o);sel.value=s.voice;}
-document.getElementById('ratio').value=s.ratio||'9:16';document.getElementById('speed').value=s.speed||'+0%';const imSel=document.getElementById('imageMode');imSel.value=s.imageMode||'pollinations';if(!imSel.value)imSel.value='pollinations';document.getElementById('transitions').value=s.transitions||'mixed';document.getElementById('motion').value=s.motion||'pan';document.getElementById('captionStyle').value=s.captionStyle||'bold';document.getElementById('captions').checked=s.captions!==false;sceneEdits=[];document.getElementById('sceneTimeline').replaceChildren();}
+document.getElementById('ratio').value=s.ratio||'9:16';document.getElementById('speed').value=s.speed||'+0%';const imSel=document.getElementById('imageMode');imSel.value=s.imageMode||'pollinations';if(!imSel.value)imSel.value='pollinations';document.getElementById('sceneSplit').value=s.sceneSplit||'sentences';const trSel=document.getElementById('transitions');trSel.value=s.transitions||'mixed';if(!trSel.value)trSel.value='mixed';toggleTransPicks();if(s.transitionPicks){const pickSet=new Set(String(s.transitionPicks).split(','));document.querySelectorAll('input[name=tpick]').forEach(c=>{c.checked=pickSet.has(c.value);});}let mv=s.motion||'studio';if(mv==='pan'||mv==='on')mv='panright';const moSel=document.getElementById('motion');moSel.value=mv;if(!moSel.value)moSel.value='studio';const capSel=document.getElementById('captionStyle');capSel.value=s.captionStyle||'bold';if(!capSel.value)capSel.value='bold';document.getElementById('captions').checked=s.captions!==false&&capSel.value!=='off';syncCaptionUI();sceneEdits=[];document.getElementById('sceneTimeline').replaceChildren();}
 async function saveProject(){const name=document.getElementById('projectName').value.trim();if(!name){alert('Enter a project name.');return;}const sel=document.getElementById('scriptSelect');try{const x=await api('/api/projects/save',{id:sel.value||'',name,data:collectSettings()});document.getElementById('projectMsg').textContent='Project saved: '+name;await loadProjects();document.getElementById('scriptSelect').value=x.id;}catch(e){document.getElementById('projectMsg').textContent='Save error: '+e.message;}}
 async function loadProjects(){try{const r=await fetch('/api/projects');const x=await r.json();const sel=document.getElementById('scriptSelect');const cur=sel.value;sel.innerHTML='<option value="">— Choose a project —</option>';x.projects.forEach(p=>{const o=document.createElement('option');o.value=p.id;o.textContent=p.name;sel.appendChild(o);});if(cur)sel.value=cur;
 const badge=document.getElementById('draftCount');badge.style.display=x.projects.length?'inline-block':'none';badge.textContent=x.projects.length;
@@ -511,7 +554,7 @@ if(mode==='pixabay'&&!document.getElementById('pixabayKey').value.trim()){alert(
 if(mode==='pexels'&&!document.getElementById('pexelsKey').value.trim()){alert('Pexels mode: enter your free Pexels API key in the Image Source section — or use Wikimedia Commons or Openverse stock photos (no key needed).');return;}
 if(mode==='cloudflare'&&(!document.getElementById('cfAccount').value.trim()||!document.getElementById('cfToken').value.trim())){alert('For Cloudflare mode, enter the Account ID and Token.');return;}
 let b=document.getElementById('launch');b.disabled=true;document.getElementById('result').innerHTML='';document.getElementById('status').textContent=queuedOnly?'Adding to queue...':'Starting...';document.getElementById('progress').value=0;
-try{let r=await fetch('/api/launch',{method:'POST',body:(()=>{let f=new FormData();let s=collectSettings();let vals={script:s.script,style:s.style,voice:s.voice,ratio:s.ratio,speed:s.speed,captions:s.captions,transitions:s.transitions,motion:s.motion,captionStyle:s.captionStyle,imageMode:s.imageMode,accountName:document.getElementById('accountSelect').value,cfAccount:document.getElementById('cfAccount').value,cfToken:document.getElementById('cfToken').value,pixabayKey:document.getElementById('pixabayKey').value,pexelsKey:document.getElementById('pexelsKey').value,pollinationsKey:document.getElementById('pollinationsKey').value,characterBible:s.characterBible,projectName:document.getElementById('projectName').value,sceneEdits:sceneEdits.length?JSON.stringify(sceneEdits):''};for(let [k,v] of Object.entries(vals))f.append(k,v);for(let file of document.getElementById('uploads').files)f.append('images',file);for(let file of document.getElementById('sceneClips').files)f.append('sceneclips',file);const ov=document.getElementById('ownVoice').files[0];if(ov)f.append('voiceover',ov);const mf=document.getElementById('musicFile').files[0];if(mf)f.append('musicfile',mf);return f;})()});
+try{let r=await fetch('/api/launch',{method:'POST',body:(()=>{let f=new FormData();let s=collectSettings();let vals={script:s.script,style:s.style,voice:s.voice,ratio:s.ratio,speed:s.speed,captions:s.captions,transitions:s.transitions,transitionPicks:s.transitionPicks,sceneSplit:s.sceneSplit,motion:s.motion,captionStyle:s.captionStyle,imageMode:s.imageMode,accountName:document.getElementById('accountSelect').value,cfAccount:document.getElementById('cfAccount').value,cfToken:document.getElementById('cfToken').value,pixabayKey:document.getElementById('pixabayKey').value,pexelsKey:document.getElementById('pexelsKey').value,pollinationsKey:document.getElementById('pollinationsKey').value,characterBible:s.characterBible,projectName:document.getElementById('projectName').value,sceneEdits:sceneEdits.length?JSON.stringify(sceneEdits):''};for(let [k,v] of Object.entries(vals))f.append(k,v);for(let file of document.getElementById('uploads').files)f.append('images',file);for(let file of document.getElementById('sceneClips').files)f.append('sceneclips',file);const ov=document.getElementById('ownVoice').files[0];if(ov)f.append('voiceover',ov);const mf=document.getElementById('musicFile').files[0];if(mf)f.append('musicfile',mf);return f;})()});
 let x=await r.json();if(!r.ok)throw Error(x.error||'Failed to start');
 if(queuedOnly){b.disabled=false;document.getElementById('status').textContent='Added to the queue ✔ — check the status on the Queue page.';loadJobs();return;}
 clearInterval(timer);timer=setInterval(async()=>{try{let q=await fetch('/api/status/'+x.job);let j=await q.json();document.getElementById('status').textContent=j.message;document.getElementById('progress').value=j.progress;loadJobs();
@@ -522,7 +565,7 @@ async function loadMe(){try{const r=await fetch('/api/me');const x=await r.json(
 async function loadUsers(){try{const r=await fetch('/api/admin/users');const x=await r.json();const root=document.getElementById('usersList');if(!r.ok){root.innerHTML='<p class="small">'+(x.error||'Admin only')+'</p>';return;}root.innerHTML=x.users.length?'':'<p class="small">No extra accounts yet.</p>';x.users.forEach(u=>{const d=document.createElement('div');d.className='item';d.innerHTML='<b></b> <span class="small"></span> ';d.querySelector('b').textContent=u.username;const rb=document.createElement('button');rb.className='ghost';rb.style.marginRight='8px';rb.textContent='Reset password';rb.onclick=async()=>{const pw=prompt('New password for '+u.username+' (min 8 characters):');if(!pw)return;const rr=await fetch('/api/admin/users/reset',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u.username,password:pw})});const xx=await rr.json();alert(xx.ok?'Password updated.':('Error: '+(xx.error||'failed')));};const db=document.createElement('button');db.className='danger';db.textContent='Delete';db.onclick=async()=>{if(!confirm('Delete account '+u.username+'? Their videos stay saved.'))return;const rr=await fetch('/api/admin/users/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u.username})});const xx=await rr.json();if(!xx.ok)alert('Error: '+(xx.error||'failed'));loadUsers();};d.appendChild(rb);d.appendChild(db);root.appendChild(d);});}catch(e){}}
 async function createUser(){const u=document.getElementById('newUser').value.trim();const p=document.getElementById('newUserPw').value;try{const r=await fetch('/api/admin/users/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p})});const x=await r.json();if(!r.ok)throw Error(x.error||'Failed');document.getElementById('newUser').value='';document.getElementById('newUserPw').value='';loadUsers();}catch(e){alert('Error: '+e.message);}}
 loadMe();
-buildPresets();buildExtraStyles();loadVoices();refreshAccounts();loadProjects();loadJobs();
+buildPresets();buildExtraStyles();buildCaptionCards();loadVoices();refreshAccounts();loadProjects();loadJobs();
 setInterval(()=>{loadJobs();},8000);
 </script></body></html>
 '''
@@ -556,12 +599,94 @@ def _queue_worker():
 threading.Thread(target=_queue_worker, daemon=True).start()
 
 
-def split_scenes(script):
+def _split_scenes_lines(script):
+    """The original splitter: paragraphs (blank-line separated), otherwise
+    sentences grouped three at a time."""
     paragraphs = [p.strip() for p in re.split(r'\n\s*\n', script) if p.strip()]
     if len(paragraphs) > 1:
         return paragraphs
     sentences = re.split(r'(?<=[.!?।؟])\s+', script.strip())
     return [' '.join(sentences[i:i+3]) for i in range(0, len(sentences), 3) if sentences[i:i+3]]
+
+
+_SCENE_MAX_CHARS = 240
+_SCENE_MIN_WORDS = 3
+
+
+def _pack_long_scene(text):
+    """Split one over-long scene at commas / semicolons into <=240-char
+    scenes (hard-split on word boundaries only if a single piece is longer)."""
+    pieces = [q.strip() for q in re.split(r'(?<=[,;])\s+', text) if q.strip()]
+    out, buf = [], ''
+    for piece in pieces:
+        if len(piece) > _SCENE_MAX_CHARS:
+            if buf:
+                out.append(buf)
+                buf = ''
+            wbuf = ''
+            for word in piece.split():
+                cand = (wbuf + ' ' + word) if wbuf else word
+                if len(cand) <= _SCENE_MAX_CHARS:
+                    wbuf = cand
+                else:
+                    if wbuf:
+                        out.append(wbuf)
+                    wbuf = word
+            buf = wbuf
+            continue
+        cand = (buf + ' ' + piece) if buf else piece
+        if len(cand) <= _SCENE_MAX_CHARS:
+            buf = cand
+        else:
+            out.append(buf)
+            buf = piece
+    if buf:
+        out.append(buf)
+    return out or [text]
+
+
+def _split_scenes_sentences(script):
+    """Sentence-level scenes (the new default): one scene per spoken
+    sentence, so the picture changes exactly when the narration moves on.
+    Splits on sentence enders (. ! ? ... and line breaks; fragments shorter
+    than ~3 words merge into the next scene; scenes over ~240 chars split
+    at commas/semicolons; the MAX_SCENES cap merges shortest neighbours."""
+    units = []
+    for line in script.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        units.extend(q.strip() for q in re.split(r'(?<=[.!?…।؟])\s+', line) if q.strip())
+    scenes, carry = [], ''
+    for unit in units:
+        cur = (carry + ' ' + unit) if carry else unit
+        if len(cur.split()) < _SCENE_MIN_WORDS:
+            carry = cur
+            continue
+        scenes.append(cur)
+        carry = ''
+    if carry:
+        if scenes:
+            scenes[-1] = scenes[-1] + ' ' + carry
+        else:
+            scenes.append(carry)
+    out = []
+    for scene in scenes:
+        if len(scene) <= _SCENE_MAX_CHARS:
+            out.append(scene)
+        else:
+            out.extend(_pack_long_scene(scene))
+    scenes = out
+    while len(scenes) > MAX_SCENES:
+        k = min(range(len(scenes) - 1), key=lambda i: len(scenes[i]) + len(scenes[i + 1]))
+        scenes[k:k + 2] = [scenes[k] + ' ' + scenes[k + 1]]
+    return scenes
+
+
+def split_scenes(script, mode='sentences'):
+    if str(mode).lower() == 'lines':
+        return _split_scenes_lines(script)
+    return _split_scenes_sentences(script)
 
 
 def font(size):
@@ -596,7 +721,7 @@ def scene_image(source, target, text, ratio, captions, caption_style):
         img = ImageOps.fit(raw.convert('RGB'), (w, h), method=Image.Resampling.LANCZOS)
     if captions:
         d = ImageDraw.Draw(img, 'RGBA')
-        f = font(max(26, int(w * (.049 if caption_style in ('bold', 'comic', 'highlight') else .036))))
+        f = font(max(26, int(w * (.049 if caption_style in ('bold', 'comic', 'highlight', 'karaoke') else .044 if caption_style == 'neon' else .040 if caption_style == 'simple' else .036))))
         # Display concise per-scene subtitles, not the entire paragraph.
         snippet = re.sub(r'\s+', ' ', text).strip()[:190]
         if caption_style == 'comic':
@@ -608,15 +733,17 @@ def scene_image(source, target, text, ratio, captions, caption_style):
         if caption_style in ('box','bold'):
             d.rounded_rectangle((int(w*.07), y0, int(w*.93), y0+block_height), radius=18,
                                 fill=(5, 9, 18, 185 if caption_style == 'box' else 130))
-        txt_fill = {'green': (96, 255, 132), 'comic': (255, 236, 92)}.get(caption_style, 'white')
+        txt_fill = {'green': (96, 255, 132), 'comic': (255, 236, 92), 'neon': (94, 234, 255)}.get(caption_style, 'white')
         y = y0+15
         for line in lines:
             box = d.textbbox((0, 0), line, font=f, stroke_width=2)
             x = (w-(box[2]-box[0]))//2
-            if caption_style == 'highlight':
+            if caption_style in ('highlight', 'karaoke'):
                 d.rectangle((x-8, y+3, x+(box[2]-box[0])+8, y+step-5), fill=(255, 221, 0, 255))
                 d.text((x,y), line, font=f, fill=(10, 10, 10), stroke_width=0)
             else:
+                if caption_style == 'neon':
+                    d.text((x,y), line, font=f, fill=(0, 110, 150), stroke_width=6, stroke_fill=(0, 110, 150))
                 d.text((x,y), line, font=f, fill=txt_fill, stroke_width=2, stroke_fill=(0,0,0,255))
             y += step
     img.save(target, quality=93)
@@ -636,7 +763,7 @@ def _caption_overlay(text, ratio, caption_style, output):
     w, h = dimensions(ratio)
     img = Image.new('RGBA', (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(img, 'RGBA')
-    f = font(max(26, int(w * (.049 if caption_style in ('bold', 'comic', 'highlight') else .036))))
+    f = font(max(26, int(w * (.049 if caption_style in ('bold', 'comic', 'highlight', 'karaoke') else .044 if caption_style == 'neon' else .040 if caption_style == 'simple' else .036))))
     snippet = re.sub(r'\s+', ' ', text).strip()[:190]
     if caption_style == 'comic':
         snippet = snippet.upper()
@@ -647,15 +774,17 @@ def _caption_overlay(text, ratio, caption_style, output):
     if caption_style in ('box','bold'):
         d.rounded_rectangle((int(w*.07), y0, int(w*.93), y0+block_height), radius=18,
                             fill=(5, 9, 18, 185 if caption_style == 'box' else 130))
-    txt_fill = {'green': (96, 255, 132, 255), 'comic': (255, 236, 92, 255)}.get(caption_style, (255, 255, 255, 255))
+    txt_fill = {'green': (96, 255, 132, 255), 'comic': (255, 236, 92, 255), 'neon': (94, 234, 255, 255)}.get(caption_style, (255, 255, 255, 255))
     y = y0+15
     for line in lines:
         box = d.textbbox((0, 0), line, font=f, stroke_width=2)
         x = (w-(box[2]-box[0]))//2
-        if caption_style == 'highlight':
+        if caption_style in ('highlight', 'karaoke'):
             d.rectangle((x-8, y+3, x+(box[2]-box[0])+8, y+step-5), fill=(255, 221, 0, 255))
             d.text((x,y), line, font=f, fill=(10, 10, 10, 255), stroke_width=0)
         else:
+            if caption_style == 'neon':
+                d.text((x,y), line, font=f, fill=(0, 110, 150, 255), stroke_width=6, stroke_fill=(0, 110, 150, 255))
             d.text((x,y), line, font=f, fill=txt_fill, stroke_width=2, stroke_fill=(0,0,0,255))
         y += step
     img.save(output)
@@ -1137,6 +1266,51 @@ def _fetch_scene_picture(job, data, scene_index, scene_no, visual_prompt, image_
     raise err
 
 
+_MOTION_MIX_CYCLE = ['kenburns', 'zoomin', 'panright', 'drone', 'zoomout', 'panleft', 'crash']
+
+
+def _motion_filter(motion_mode, frames, w, h, fps, scene_index=0):
+    """zoompan filter for one scene's camera motion, or None for a static
+    frame. Modes: studio (very slow subtle zoom), kenburns (slow zoom +
+    drift), zoomin, zoomout, panleft, panright, drone (slow zoom out +
+    upward drift), crash (fast zoom in the first ~25% of the scene, then
+    hold), off, mix (per-scene rotation). Legacy values from older saved
+    projects ('pan', 'on') map to panright."""
+    m = str(motion_mode or 'off').lower()
+    if m in ('on', 'pan'):
+        m = 'panright'
+    if m == 'mix':
+        m = _MOTION_MIX_CYCLE[scene_index % len(_MOTION_MIX_CYCLE)]
+    if m == 'off':
+        return None
+    last = max(1, frames - 1)
+    cx = "iw/2-(iw/zoom/2)"
+    cy = "ih/2-(ih/zoom/2)"
+    if m == 'studio':
+        z, x, y = "1+0.00045*on", cx, cy
+    elif m == 'kenburns':
+        z = "1.06+0.0009*on"
+        x = f"{cx}+(on/{last})*iw*0.025"
+        y = f"{cy}+(on/{last})*ih*0.012"
+    elif m == 'zoomin':
+        z, x, y = "1+0.0012*on", cx, cy
+    elif m == 'zoomout':
+        z, x, y = "max(1.05,1.25-0.0012*on)", cx, cy
+    elif m == 'panright':
+        z, x, y = "1.18", f"(iw-iw/zoom)*on/{last}", cy
+    elif m == 'panleft':
+        z, x, y = "1.18", f"(iw-iw/zoom)*(1-on/{last})", cy
+    elif m == 'drone':
+        z = "max(1.04,1.24-0.0011*on)"
+        x, y = cx, f"{cy}-(on/{last})*ih*0.015"
+    elif m == 'crash':
+        q = max(2, round(frames * 0.25))
+        z, x, y = f"if(lt(on,{q}),1+0.38*on/{q},1.38)", cx, cy
+    else:  # unknown value: safest is a static frame
+        return None
+    return f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={fps}"
+
+
 def probe_duration(path):
     p = subprocess.run(['ffprobe','-v','error','-show_entries','format=duration','-of','default=noprint_wrappers=1:nokey=1',str(path)], capture_output=True,text=True,timeout=30)
     if p.returncode: raise RuntimeError('ffprobe failed: '+p.stderr[-300:])
@@ -1147,7 +1321,50 @@ _XFADE_DURATION = 0.5
 _XFADE_MIXED_CYCLE = ['fade', 'fadeblack', 'smoothleft', 'dissolve', 'fadewhite', 'smoothright']
 
 
-def _join_xfade(segments, durations, transition_mode, output):
+_XFADE_PICK_KINDS = {'crossfade': 'fade', 'dipblack': 'fadeblack',
+                     'whiteflash': 'fadewhite', 'glitch': 'pixelize',
+                     'glow': 'hblur', 'zoompunch': 'zoomin'}
+
+
+def _xfade_kinds(transition_mode, n_junctions, picks=None):
+    """Resolve a UI transition mode to the per-junction xfade transition
+    names. Mapping: Crossfade->fade, Dip to black->fadeblack, White flash->
+    fadewhite, Smooth slide->smoothleft/smoothright alternating, Glitch->
+    pixelize, Dreamy glow->hblur (a soft blur melt - the dreamiest of the
+    built-in xfade set), Zoom punch->zoomin (a real xfade transition in
+    current ffmpeg). 'several' cycles through the user's ticked picks;
+    'mixed' keeps the original cycle; legacy 'fade' means crossfade."""
+    mode = str(transition_mode or 'mixed').lower()
+    if mode in ('fade', 'crossfade'):
+        return ['fade'] * n_junctions
+    if mode == 'dipblack':
+        return ['fadeblack'] * n_junctions
+    if mode == 'whiteflash':
+        return ['fadewhite'] * n_junctions
+    if mode == 'slide':
+        return ['smoothleft' if k % 2 == 0 else 'smoothright'
+                for k in range(n_junctions)]
+    if mode == 'glitch':
+        return ['pixelize'] * n_junctions
+    if mode == 'glow':
+        return ['hblur'] * n_junctions
+    if mode == 'zoompunch':
+        return ['zoomin'] * n_junctions
+    if mode == 'several':
+        seq = []
+        for pick in (picks or []):
+            pick = str(pick).strip().lower()
+            if pick == 'slide':
+                seq += ['smoothleft', 'smoothright']
+            elif pick in _XFADE_PICK_KINDS:
+                seq.append(_XFADE_PICK_KINDS[pick])
+        if not seq:
+            seq = ['fade', 'fadeblack']
+        return [seq[k % len(seq)] for k in range(n_junctions)]
+    return [_XFADE_MIXED_CYCLE[k % len(_XFADE_MIXED_CYCLE)] for k in range(n_junctions)]
+
+
+def _join_xfade(segments, durations, transition_mode, output, transition_picks=None):
     """Join uniform scene segments with REAL cross-fade transitions (xfade).
 
     All segments share the same size / fps / codec (they are rendered that
@@ -1172,10 +1389,7 @@ def _join_xfade(segments, durations, transition_mode, output):
     n = len(segments)
     if n < 2:
         raise ValueError('xfade needs at least two segments.')
-    if transition_mode == 'fade':
-        kinds = ['fade'] * (n - 1)
-    else:  # mixed
-        kinds = [_XFADE_MIXED_CYCLE[k % len(_XFADE_MIXED_CYCLE)] for k in range(n - 1)]
+    kinds = _xfade_kinds(transition_mode, n - 1, transition_picks)
     parts = []
     prev = '0:v'
     elapsed = 0.0
@@ -1197,12 +1411,154 @@ def _join_xfade(segments, durations, transition_mode, output):
         raise RuntimeError('xfade join failed: ' + p.stderr[-800:])
 
 
+# --- Timed captions: Karaoke Fill + One Word Pop (ASS burn-in) --------------
+async def _tts_save_with_timings(text, voice_name, rate, out_path):
+    """Save one scene's Edge TTS audio AND capture its WordBoundary timings.
+
+    Returns [(word, start_s, end_s), ...] relative to the scene start, or
+    None when the service sent no boundaries. edge-tts is asked for
+    boundary='WordBoundary' (its default is SentenceBoundary); offsets and
+    durations arrive in 100-nanosecond ticks. Raises on transport failure -
+    the caller then falls back to the plain save() path."""
+    timings = []
+    got_audio = False
+    comm = edge_tts.Communicate(text, voice_name, rate=rate, boundary='WordBoundary')
+    with open(out_path, 'wb') as fh:
+        async for chunk in comm.stream():
+            ctype = chunk.get('type')
+            if ctype == 'audio':
+                fh.write(chunk['data'])
+                got_audio = True
+            elif ctype == 'WordBoundary':
+                start = (chunk.get('offset') or 0) / 1e7
+                dur = (chunk.get('duration') or 0) / 1e7
+                word = str(chunk.get('text', '')).strip()
+                if word:
+                    timings.append((word, start, start + max(dur, 0.05)))
+    if not got_audio:
+        raise RuntimeError('Edge TTS returned no audio.')
+    return timings or None
+
+
+def _proportional_timings(text, duration):
+    """Fallback word timings: spread the scene duration across its words,
+    proportional to word length - used for uploaded voiceovers and when
+    Edge TTS sent no word boundaries."""
+    words = [w for w in re.split(r'\s+', str(text).strip()) if w]
+    if not words or duration <= 0:
+        return []
+    weights = [len(w) + 1 for w in words]
+    total = float(sum(weights)) or 1.0
+    out, t = [], 0.0
+    for word, wt in zip(words, weights):
+        d = duration * wt / total
+        out.append((word, t, t + d))
+        t += d
+    return out
+
+
+def _ass_time(seconds):
+    cs_total = int(round(max(0.0, seconds) * 100))
+    h, rem = divmod(cs_total, 360000)
+    m, rem = divmod(rem, 6000)
+    s, cs = divmod(rem, 100)
+    return f'{h}:{m:02d}:{s:02d}.{cs:02d}'
+
+
+def _ass_escape(text):
+    return (str(text).replace('\\', '').replace('{', '(').replace('}', ')')
+            .replace('\n', ' ').strip())
+
+
+def _build_timed_captions_ass(scene_timings, durations, w, h, style):
+    """Build an ASS subtitle file for a whole job.
+
+    'karaoke': bottom-centred lines of a few words; one Dialogue event per
+    word with the spoken word switched to the yellow highlight colour
+    (successive primary-colour changes) while the rest of the line stays
+    white. 'pop': one word at a time, large, centred. Scene starts are the
+    cumulative narration durations - the same boundaries the joins use,
+    so captions stay in sync through xfade and concat joins alike."""
+    starts, t = [], 0.0
+    for d in durations:
+        starts.append(t)
+        t += d
+    if style == 'pop':
+        fs = max(44, int(w * 0.13))
+        style_line = (f'Style: Timed,DejaVu Sans,{fs},&H00FFFFFF,&H0000FFFF,'
+                      '&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,4,2,5,20,20,0,1')
+    else:
+        fs = max(28, int(w * 0.052))
+        style_line = (f'Style: Timed,DejaVu Sans,{fs},&H00FFFFFF,&H0000FFFF,'
+                      f'&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,3,1,2,20,20,{int(h * 0.06)},1')
+    lines = ['[Script Info]', 'ScriptType: v4.00+', f'PlayResX: {w}', f'PlayResY: {h}', '',
+             '[V4+ Styles]',
+             'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding',
+             style_line, '',
+             '[Events]',
+             'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text']
+    events = []
+    if style == 'pop':
+        for i, words in enumerate(scene_timings):
+            base = starts[i]
+            for j, (word, s, e) in enumerate(words):
+                end = words[j + 1][1] if j + 1 < len(words) else e
+                events.append((base + s, base + max(end, s + 0.05),
+                               _ass_escape(word.upper())))
+    else:
+        for i, words in enumerate(scene_timings):
+            base = starts[i]
+            groups, cur, curlen = [], [], 0
+            for item in words:
+                wl = len(item[0]) + 1
+                if cur and curlen + wl > 36:
+                    groups.append(cur)
+                    cur, curlen = [], 0
+                cur.append(item)
+                curlen += wl
+            if cur:
+                groups.append(cur)
+            for group in groups:
+                for j, (word, s, e) in enumerate(group):
+                    end = group[j + 1][1] if j + 1 < len(group) else e
+                    parts = []
+                    for k, (w2, _s2, _e2) in enumerate(group):
+                        esc = _ass_escape(w2)
+                        if k == j:
+                            parts.append('{\\1c&H0000FFFF&}' + esc + '{\\1c&H00FFFFFF&}')
+                        else:
+                            parts.append(esc)
+                    events.append((base + s, base + max(end, s + 0.05), ' '.join(parts)))
+    for start, end, text in events:
+        lines.append(f'Dialogue: 0,{_ass_time(start)},{_ass_time(end)},Timed,,0,0,0,,{text}')
+    return '\n'.join(lines) + '\n'
+
+
+def _ass_filter_arg(ass_path):
+    p = str(ass_path).replace('\\', '/').replace(':', '\\:').replace("'", "\\'")
+    return f"subtitles='{p}'"
+
+
+def _probe_ass_burn(ass_path, w, h):
+    """One-frame probe proving this ffmpeg can render this ASS file with
+    the subtitles filter BEFORE the job relies on it; on failure the caller
+    falls back to the regular static captions."""
+    cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', '-f', 'lavfi',
+           '-i', f'color=black:s={w}x{h}:r=24', '-vf', _ass_filter_arg(ass_path),
+           '-frames:v', '1', '-f', 'null', '-']
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        return p.returncode == 0
+    except Exception:
+        return False
+
+
 def run_job(job, data):
     try:
         if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):
             raise RuntimeError('FFmpeg/ffprobe not found. Install FFmpeg and reopen CMD.')
         script = data['script'].strip()
-        scenes = split_scenes(script)
+        scenes = split_scenes(script, data.get('sceneSplit', 'sentences'))
         edits = data.get('sceneEditsParsed')
         if edits:
             scenes = [entry['narration'] for entry in edits]
@@ -1222,6 +1578,7 @@ def run_job(job, data):
             raise ValueError('Upload at least one picture, or choose one of the free image sources.')
         work = OUT / job
         work.mkdir(exist_ok=True)
+        word_timings = []  # per-scene WordBoundary timings (TTS path only)
         audio = work / 'voice.mp3'
         if data.get('voiceoverPath'):
             update(job, 5, 'Using your uploaded voiceover...')
@@ -1241,8 +1598,15 @@ def run_job(job, data):
             async def speak_all():
                 for idx, sc in enumerate(scenes):
                     piece = work / f'voice_{idx:04d}.mp3'
-                    await edge_tts.Communicate(sc, voice_name,
-                                               rate=data.get('speed','+0%')).save(str(piece))
+                    timings = None
+                    try:
+                        timings = await _tts_save_with_timings(
+                            sc, voice_name, data.get('speed', '+0%'), piece)
+                    except Exception:
+                        timings = None
+                        await edge_tts.Communicate(sc, voice_name,
+                                                   rate=data.get('speed','+0%')).save(str(piece))
+                    word_timings.append(timings)
                     parts.append(piece)
             asyncio.run(speak_all())
             durations = []
@@ -1262,6 +1626,37 @@ def run_job(job, data):
             if p.returncode: raise RuntimeError('FFmpeg error while joining the voiceover: '+p.stderr[-600:])
             total_duration = sum(durations)
             if total_duration <= 0: raise RuntimeError('Voiceover is empty.')
+        # ---- Timed captions (Karaoke Fill / One Word Pop) ----------------
+        # Word timings come from the Edge TTS WordBoundary events when the
+        # service sent them; otherwise they are estimated per scene,
+        # proportional to word length (also the only option for an uploaded
+        # voiceover). If the ASS file cannot be built or this ffmpeg cannot
+        # burn it (one-frame probe), the job falls back to the regular
+        # static captions ('highlight' look for Karaoke, 'bold' for Pop).
+        cap_style = str(data.get('captionStyle', 'bold')).lower()
+        cap_on = bool(data.get('captions', True)) and cap_style != 'off'
+        frame_style = {'karaoke': 'highlight', 'pop': 'bold'}.get(cap_style, cap_style)
+        scene_timings = []
+        for _i, _sc in enumerate(scenes):
+            _t = word_timings[_i] if _i < len(word_timings) else None
+            scene_timings.append(_t if _t else _proportional_timings(_sc, durations[_i]))
+        timed_style = cap_style if (cap_on and cap_style in ('karaoke', 'pop')) else None
+        ass_path = None
+        ass_ok = False
+        if timed_style:
+            _cw, _ch = dimensions(data.get('ratio', '9:16'))
+            try:
+                ass_path = work / 'captions.ass'
+                ass_path.write_text(
+                    _build_timed_captions_ass(scene_timings, durations, _cw, _ch, timed_style),
+                    encoding='utf-8')
+                ass_ok = _probe_ass_burn(ass_path, _cw, _ch)
+                if not ass_ok:
+                    raise RuntimeError('subtitles filter probe failed')
+            except Exception:
+                ass_ok = False
+                ass_path = None
+                update(job, 8, 'Timed captions are unavailable on this system - regular captions will be used instead.')
         # Reuse one Gemini client per job to reduce connection overhead.
         client = None
         if mode == 'gemini':
@@ -1309,12 +1704,13 @@ def run_job(job, data):
                     _placeholder_card(scene, data.get('ratio','9:16'), image_path, scene_no=i + 1)
                     update(job, progress, f'Picture {i+1}: every free source failed - a card has been used for that scene, and the video is continuing...')
             scene_image(image_path, work/f'frame_{i:04d}.jpg', scene, data.get('ratio','9:16'),
-                        data.get('captions',True), data.get('captionStyle','bold'))
+                        cap_on and not ass_ok, frame_style)
         update(job, 60, 'Rendering pictures, motion and transitions...')
         w,h=dimensions(data.get('ratio','9:16'))
         fps=24
         segments=[]
         transition=data.get('transitions','mixed')
+        transition_picks = [q.strip() for q in str(data.get('transitionPicks', '')).split(',') if q.strip()]
         # Real xfade transitions need uniform segments and at least ~1.2s in
         # every neighbouring pair; otherwise the whole video keeps the plain
         # concat join with the small baked-in edge fades (exactly as before).
@@ -1337,15 +1733,15 @@ def run_job(job, data):
                 # Flow/Veo clip: loop it to the scene duration, fix size/crop,
                 # overlay captions, then treat it as a segment like the other scenes.
                 src = veo_clips[i]
-                fade_v = not use_xfade and (transition=='fade' or (transition=='mixed' and i%2==1))
+                fade_v = not use_xfade and (transition in ('fade','crossfade') or (transition in ('mixed','several') and i%2==1))
                 fade_chain = ''
                 if fade_v and duration>0.8:
                     fd=min(.28,duration/5)
                     fade_chain = f',fade=t=in:st=0:d={fd:.3f},fade=t=out:st={max(0,duration-fd):.3f}:d={fd:.3f}'
                 base_vf = f'scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h},fps={fps}'
-                if data.get('captions',True):
+                if cap_on and not ass_ok:
                     cap_png = work/f'cap_{i:04d}.png'
-                    _caption_overlay(scenes[i], data.get('ratio','9:16'), data.get('captionStyle','bold'), cap_png)
+                    _caption_overlay(scenes[i], data.get('ratio','9:16'), frame_style, cap_png)
                     fc = f'[0:v]{base_vf}[bg];[bg][1:v]overlay=0:0{fade_chain}[v]'
                     cmd=['ffmpeg','-y','-hide_banner','-loglevel','error','-stream_loop','-1','-i',str(src),
                          '-i',str(cap_png),'-filter_complex',fc,'-map','[v]','-frames:v',str(frames),
@@ -1361,22 +1757,10 @@ def run_job(job, data):
                 update(job, 60+int(30*(i+1)/len(scenes)),f'Rendered scene {i+1}/{len(scenes)} (Veo clip)')
                 continue
             img=work/f'frame_{i:04d}.jpg'
-            fade = not use_xfade and (transition=='fade' or (transition=='mixed' and i%2==1))
-            motion_mode = data.get('motion', 'off')
-            if motion_mode == 'on':
-                motion_mode = 'pan'
-            vf=[]
-            if motion_mode in ('zoomin', 'zoomout', 'pan'):
-                # Ken Burns motion via zoompan on the still frame (tested expressions).
-                if motion_mode == 'zoomin':
-                    zp = f"zoompan=z='1+0.0012*on':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={frames}:s={w}x{h}:fps={fps}"
-                elif motion_mode == 'zoomout':
-                    zp = f"zoompan=z='max(1.05,1.25-0.0012*on)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d={frames}:s={w}x{h}:fps={fps}"
-                else:
-                    zp = f"zoompan=z='1.18':x='(iw-iw/zoom)*on/{max(1,frames-1)}':y='ih/2-(ih/zoom/2)':d={frames}:s={w}x{h}:fps={fps}"
-                vf += [zp]
-            else:
-                vf += [f'scale={w}:{h}']
+            fade = not use_xfade and (transition in ('fade','crossfade') or (transition in ('mixed','several') and i%2==1))
+            motion_mode = data.get('motion', 'studio')
+            zp = _motion_filter(motion_mode, frames, w, h, fps, scene_index=i)
+            vf = [zp] if zp else [f'scale={w}:{h}']
             if fade and duration>0.8:
                 fd=min(.28,duration/5)
                 vf += [f'fade=t=in:st=0:d={fd:.3f}',f'fade=t=out:st={max(0,duration-fd):.3f}:d={fd:.3f}']
@@ -1404,7 +1788,7 @@ def run_job(job, data):
             update(job, 91, 'Applying transitions between scenes...')
             try:
                 joined = work/'joined.mp4'
-                _join_xfade(segments, durations, transition, joined)
+                _join_xfade(segments, durations, transition, joined, transition_picks)
                 video_args = ['-i', str(joined)]
             except Exception:
                 update(job, 91, 'Transitions could not be applied — plain join used.')
@@ -1420,6 +1804,21 @@ def run_job(job, data):
                  '-c:v','copy','-c:a','aac','-b:a','128k','-shortest','-movflags','+faststart',str(result)]
         p=subprocess.run(cmd,capture_output=True,text=True,timeout=1800)
         if p.returncode: raise RuntimeError('Final FFmpeg error: '+p.stderr[-1200:])
+        captions_note = ''
+        if ass_ok and ass_path is not None:
+            update(job, 94, 'Adding timed captions...')
+            cap_out = work / 'final_captioned.mp4'
+            p2 = subprocess.run(['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', '-i', str(result),
+                                 '-vf', _ass_filter_arg(ass_path), '-map', '0:v:0', '-map', '0:a:0',
+                                 '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '24',
+                                 '-pix_fmt', 'yuv420p', '-c:a', 'copy', '-movflags', '+faststart',
+                                 str(cap_out)],
+                                capture_output=True, text=True, timeout=1800)
+            if p2.returncode == 0:
+                os.replace(cap_out, result)
+            else:
+                update(job, 95, 'Timed captions could not be added - finishing the video without them.')
+                captions_note = ' NOTE: the timed captions could not be burned into this video.'
         finish_msg = f'Finished! Narration: {total_duration:.1f}s. Download MP4.'
         if rescued_scenes:
             rescue_detail = ', '.join(f'scene {n} via {label}' for n, label in rescued_scenes)
@@ -1432,6 +1831,7 @@ def run_job(job, data):
             if stock_skipped:
                 finish_msg += (' Stock-photo rescue was skipped for those scenes because the selected '
                                'style is not a photo style - a stock photo would not match an illustrated story.')
+        finish_msg += captions_note
         _persist_video(data.get('owner', ''), job, result)
         update(job,100,finish_msg,'done','/generated/'+result.name)
     except Exception as exc:
@@ -1596,6 +1996,13 @@ def launch():
         except (ValueError,TypeError):
             return jsonify(error='Invalid scene timeline; refresh scenes and retry.'),400
     data['captions'] = data.get('captions') == 'true'
+    data['sceneSplit'] = 'lines' if str(data.get('sceneSplit', 'sentences')).lower() == 'lines' else 'sentences'
+    _tpicks = [q.strip().lower() for q in str(data.get('transitionPicks', '')).split(',')]
+    data['transitionPicks'] = ','.join(q for q in _tpicks if q in ('crossfade', 'dipblack', 'whiteflash', 'slide', 'glitch', 'glow', 'zoompunch'))
+    _tr = str(data.get('transitions', 'mixed')).lower()
+    data['transitions'] = _tr if _tr in ('cut', 'fade', 'crossfade', 'dipblack', 'whiteflash', 'slide', 'glitch', 'glow', 'zoompunch', 'mixed', 'several') else 'mixed'
+    data['motion'] = str(data.get('motion', 'studio')).lower()
+    data['captionStyle'] = str(data.get('captionStyle', 'bold')).lower()
     files=request.files.getlist('images')
     if len(files)>100: return jsonify(error='Maximum 100 uploaded pictures.'),400
     job=uuid.uuid4().hex
