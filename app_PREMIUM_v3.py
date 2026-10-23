@@ -898,7 +898,7 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 .capsample{font-size:16px;line-height:1.3;text-align:center}
 .capname{font-size:11px;color:#9bb0d1}
 .capprev{background:linear-gradient(160deg,#1d2c4c,#0a1322 55%,#16263f);border:1px solid #344869;border-radius:11px;min-height:112px;display:flex;align-items:center;justify-content:center;padding:18px;text-align:center}
-.stylecards{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:10px;margin:8px 0 10px}
+.stylecards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin:8px 0 10px}
 .stylecard{background:#0c172b;border:2px solid #344869;border-radius:11px;padding:7px;cursor:pointer;color:#fff;text-align:center}
 .stylecard:hover{border-color:#5274ac}.stylecard.active{border-color:#f5c542;box-shadow:0 0 0 2px #f5c54244}
 .stylecard img{width:100%;border-radius:7px;display:block;aspect-ratio:16/9;object-fit:cover;background:#16263f}
