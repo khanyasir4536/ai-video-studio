@@ -836,16 +836,27 @@ MAX_SCRIPT_CHARS = 400000
 
 
 def _resolve_voice(value):
+    """Resolve a requested voice to an Edge TTS short name. Fix v6.8
+    voices trim: a removed-language voice (an old label, or a raw Neural
+    code in another language) falls back to English Female — a job or a
+    saved project that requests it still renders, never fails, never
+    crashes. Only en/ur/hi codes pass through untouched."""
     if value in VOICES:
         return VOICES[value]
     if value and re.fullmatch(r'[a-z]{2,3}-[A-Z]{2}-[A-Za-z0-9]+Neural', str(value)):
-        return str(value)
+        if str(value).split('-')[0].lower() in _VOICE_KEEP_LANGS:
+            return str(value)
     return VOICES['English Female']
 def _same_origin():
     origin = request.headers.get('Origin')
     if not origin: return True
     return origin.rstrip('/') == request.host_url.rstrip('/')
 
+# Fix v6.8 — voices trim (owner's order): ONLY English, Urdu and Hindi
+# voices are offered. Every other language was removed from this list, so
+# it can no longer appear in the picker or in the /api/voices fallback.
+# All variants WITHIN those three languages are kept (en-US, en-GB,
+# en-IN, ur-PK, hi-IN).
 VOICES = {
     'English Female': 'en-US-JennyNeural',
     'English Male': 'en-US-GuyNeural',
@@ -859,20 +870,18 @@ VOICES = {
     'Hindi Male': 'hi-IN-MadhurNeural',
     'Urdu Female': 'ur-PK-UzmaNeural',
     'Urdu Male': 'ur-PK-AsadNeural',
-    'Arabic Female': 'ar-SA-ZariyahNeural',
-    'Arabic Male': 'ar-SA-HamedNeural',
-    'Arabic Egypt Female': 'ar-EG-SalmaNeural',
-    'Bengali Male': 'bn-IN-BashkarNeural',
-    'Malay Female': 'ms-MY-YasminNeural',
-    'Malay Male': 'ms-MY-OsmanNeural',
-    'Tamil Female': 'ta-IN-PallaviNeural',
-    'Telugu Female': 'te-IN-ShrutiNeural',
-    'Spanish Female': 'es-ES-ElviraNeural',
-    'French Female': 'fr-FR-DeniseNeural',
-    'German Female': 'de-DE-KatjaNeural',
-    'Turkish Male': 'tr-TR-AhmetNeural',
-    'Indonesian Female': 'id-ID-GadisNeural',
 }
+# Languages kept by the trim, as Edge TTS locale prefixes.
+_VOICE_KEEP_LANGS = ('en', 'ur', 'hi')
+
+
+def _voice_entry_kept(entry):
+    """True when a catalog entry (locale/short name) is in a kept language."""
+    if not isinstance(entry, dict):
+        return False
+    loc = (entry.get('locale') or '').strip()
+    lang = loc.split('-')[0].lower() if loc else (entry.get('short') or '').split('-')[0].lower()
+    return lang in _VOICE_KEEP_LANGS
 
 HTML = r'''<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>AI Video Studio Pro — Advanced</title>
 <style>
@@ -918,6 +927,34 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 .cs-minimal{color:#dfe8fa;font-weight:400;font-size:.85em}
 .cs-off{color:#7d92b5}
 @media(max-width:900px){.layout{flex-direction:column}.side{width:100%;flex:none;height:auto;position:static;display:flex;flex-wrap:wrap;gap:4px;align-items:center}.side h1{width:100%}.navbtn{width:auto}.grid,.two,.three{grid-template-columns:1fr}.main{padding:14px 10px}}
+
+/* Premium visual polish and touch-first mobile navigation */
+:root{--studio-accent:#82aaff;--studio-border:#2c4164;--studio-panel:#111d33}
+body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;background:radial-gradient(ellipse at 12% 0%,#162642 0,transparent 38%),radial-gradient(ellipse at 88% 12%,#17213b 0,transparent 32%),#070b16}
+.card{background:linear-gradient(145deg,rgba(20,34,58,.97),rgba(13,23,41,.98));border-color:rgba(92,126,180,.32);box-shadow:0 12px 34px rgba(0,0,0,.24);transition:border-color .18s ease,transform .18s ease,box-shadow .18s ease}
+.card:hover{border-color:rgba(130,170,255,.48);box-shadow:0 16px 38px rgba(0,0,0,.30)}
+button:not(.navbtn){transition:filter .16s ease,transform .16s ease,box-shadow .16s ease;box-shadow:0 5px 16px rgba(30,67,130,.16)}
+button:not(.navbtn):hover:not(:disabled){transform:translateY(-1px);box-shadow:0 8px 20px rgba(30,67,130,.25)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--studio-accent);box-shadow:0 0 0 3px rgba(130,170,255,.16)}
+.navbtn{transition:background .16s ease,color .16s ease}
+video,img{max-width:100%}
+@media(max-width:900px){
+ .side{position:sticky;top:0;z-index:50;display:block;width:100%;height:auto;max-height:42vh;overflow-y:auto;overflow-x:hidden;padding:10px 12px;background:rgba(11,19,34,.97);backdrop-filter:blur(14px);border-right:0;border-bottom:1px solid #2b3c59;box-shadow:0 8px 22px rgba(0,0,0,.22)}
+ .side h1{font-size:17px;margin:0 6px 2px}.side .ver{margin:0 6px 7px}
+ .side .navbtn{display:inline-flex;align-items:center;width:auto;min-height:42px;padding:9px 11px;margin:2px;vertical-align:middle;white-space:nowrap}
+ .side>.small{display:none}.main{width:100%;max-width:none}
+}
+@media(max-width:600px){
+ .main{padding:12px 10px calc(22px + env(safe-area-inset-bottom))}
+ .card{padding:15px;border-radius:14px;margin-bottom:12px}
+ .grid,.two,.three{grid-template-columns:minmax(0,1fr);gap:12px}
+ .rowflex{gap:8px}.rowflex button{flex:1 1 100%}
+ input,select,textarea{font-size:16px}button{min-height:48px}
+ textarea{min-height:130px}.choices{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+ #result video{display:block;width:100%;height:auto}
+}
+@media(max-width:380px){.main{padding-left:8px;padding-right:8px}.card{padding:13px}.choices{grid-template-columns:1fr}.side .navbtn{padding:8px 9px;font-size:13px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
 </style></head>
 <body><div class="layout">
 <aside class="side">
@@ -937,7 +974,7 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 <div class="main">
 
 <section class="view active" id="view-studio">
-<div class="notice"><b>Advanced Studio:</b> Save projects, queue multiple videos, get scripts written by the FREE AI Writer, 25 voices + your own voiceover + background music. <b>Note:</b> Veo video clips and ElevenLabs cloned voices are not included in this free version — they are paid services. Here, videos are created from pictures + camera motion.</div>
+<div class="notice"><b>Advanced Studio:</b> Save projects, queue multiple videos, get scripts written by the FREE AI Writer, English, Urdu and Hindi voices + your own voiceover + background music. <b>Note:</b> Veo video clips and ElevenLabs cloned voices are not included in this free version — they are paid services. Here, videos are created from pictures + camera motion.</div>
 <div class="grid"><div>
 <div class="card"><h2>📁 Project</h2>
 <div class="two"><div><label>Project name</label><input id="projectName" placeholder="e.g. Want a phone story"></div>
@@ -951,13 +988,13 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 <div class="rowflex" style="margin-top:10px"><button type="button" class="gold" onclick="writeScript()">✍ FREE AI Writer — Create Script</button></div>
 <label>Or paste your own script</label><textarea id="script" style="min-height:210px" placeholder="Paste your ready script here. One paragraph per scene works best."></textarea>
 <p class="small">The video length is determined automatically by the narration. With sentence splitting, the picture changes with every spoken sentence.</p>
-<label>Scene split</label><select id="sceneSplit"><option value="sentences">Sentences (recommended) — one scene per spoken sentence</option><option value="lines">Lines (old way) — paragraphs / groups of 3 sentences</option></select></div>
+<label>Scene split</label><select id="sceneSplit"><option value="sentences">Sentences (recommended) — one scene per spoken sentence</option><option value="lines">Lines (old way) — paragraphs / groups of 3 sentences</option></select><label>Exact clip / scene count (1–300)</label><input id="targetSceneCount" type="number" min="1" max="300" value="10" inputmode="numeric"><p class="small">Preview scenes after choosing a count. The script is split into roughly even word groups; the count is limited if the script has fewer words. Make Flow clips manually, then upload them in scene order.</p></div>
 
 <div class="card"><h2>2 · Scene Timeline & Character</h2>
 <label>Character Bible / Consistent Character</label><textarea id="characterBible" style="min-height:88px" placeholder="Example: Ahmed, 10 years old, short black hair, green shalwar kameez, kind smile. Keep same look in every scene."></textarea>
 <label>Ready-made character presets (click to use)</label><div class="presets" id="presets"></div>
 <div class="rowflex" style="margin:12px 0"><button type="button" onclick="previewScenes()">🎞 Preview / Refresh Scenes</button><button type="button" class="ghost" onclick="resetSceneEdits()">Reset Scene Edits</button><button type="button" class="gold" onclick="downloadFlowPrompts()">📋 Flow Prompt Sheet (Download)</button></div>
-<p class="small">Flow Prompt Sheet: a ready-made prompt file for every scene — paste the prompts into Google Flow one by one, create the clips, download them, and add them above under "Veo / Flow scene clips".</p>
+<p class="small">Mobile workflow: set the clip count, tap Preview / Refresh Scenes, download the Flow Prompt Sheet, create each clip yourself in Google Flow using your account, then upload the downloaded clips in scene order above. Flow subscription credits are not directly connected to this website; the final video is assembled here after you launch it.</p>
 <p id="sceneInfo" class="small">The scene timeline will appear here. You can edit the narration and image prompt of each scene separately.</p><div id="sceneTimeline"></div></div>
 
 <div class="card"><h2>3 · Visual Style & Format</h2><div class="choices" id="styles">
@@ -977,9 +1014,9 @@ video{width:100%;margin-top:12px;border-radius:10px}.item{background:#0c172b;bor
 
 <div class="card"><h2>4 · Voice & Music</h2>
 <div class="vtabs" id="voiceTabs">
-<button type="button" class="vtab active" onclick="renderVoices('All',this)">All</button><button type="button" class="vtab" onclick="renderVoices('Fav',this)">⭐ Favourites</button><button type="button" class="vtab" onclick="renderVoices('English',this)">English</button><button type="button" class="vtab" onclick="renderVoices('Hindi',this)">Hindi</button><button type="button" class="vtab" onclick="renderVoices('Urdu',this)">Urdu</button><button type="button" class="vtab" onclick="renderVoices('Malay',this)">Malay</button>
+<button type="button" class="vtab active" onclick="renderVoices('All',this)">All</button><button type="button" class="vtab" onclick="renderVoices('Fav',this)">⭐ Favourites</button><button type="button" class="vtab" onclick="renderVoices('English',this)">English</button><button type="button" class="vtab" onclick="renderVoices('Hindi',this)">Hindi</button><button type="button" class="vtab" onclick="renderVoices('Urdu',this)">Urdu</button>
 </div>
-<label>Narrator Voice — FREE (the full catalog loads — hundreds of voices)</label><input id="voiceSearch" placeholder="🔎 Search voices: urdu, hindi, arabic, female, en-US..." oninput="renderVoices(currentVoiceFilter)"><select id="voice" style="margin-top:8px"></select>
+<label>Narrator Voice — FREE (English, Urdu and Hindi only)</label><input id="voiceSearch" placeholder="🔎 Search voices: urdu, hindi, female, en-US..." oninput="renderVoices(currentVoiceFilter)"><select id="voice" style="margin-top:8px"></select>
 <div class="rowflex" style="margin-top:10px"><button type="button" onclick="previewVoice()">▶ Voice Preview</button><button type="button" class="ghost" onclick="toggleFav()">⭐ Add/Remove Favourite</button></div>
 <p class="small" id="voiceMsg">An internet connection is required for the preview (Edge TTS is free).</p>
 <div class="two"><div><label>Voice speed</label><select id="speed"><option value="+0%">Normal</option><option value="-15%">Slow</option><option value="+15%">Fast</option></select></div>
@@ -1064,11 +1101,11 @@ const cand=buf?buf+' '+pc:pc;if(cand.length<=240)buf=cand;else{out.push(buf);buf
 if(buf)out.push(buf);}
 scenes=out;while(scenes.length>300){let bi=0,bs=Infinity;for(let i=0;i<scenes.length-1;i++){const v=scenes[i].length+scenes[i+1].length;if(v<bs){bs=v;bi=i;}}scenes.splice(bi,2,scenes[bi]+' '+scenes[bi+1]);}
 return scenes;}
-function sceneSplit(script){const sel=document.getElementById('sceneSplit');return(sel&&sel.value==='lines')?sceneSplitLines(script):sceneSplitSentences(script);}
+function sceneSplit(script){const countEl=document.getElementById('targetSceneCount');const requested=countEl?Number.parseInt(countEl.value,10):0;if(Number.isFinite(requested)&&requested>0){const words=script.trim().match(/\S+/g)||[];const count=Math.min(300,requested,words.length);const scenes=[];let start=0;for(let i=0;i<count;i++){const remaining=words.length-start;const groups=count-i;const end=i===count-1?words.length:start+Math.max(1,Math.round(remaining/groups));scenes.push(words.slice(start,end).join(' '));start=end;}return scenes;}const sel=document.getElementById('sceneSplit');return(sel&&sel.value==='lines')?sceneSplitLines(script):sceneSplitSentences(script);}
 function previewScenes(){const script=document.getElementById('script').value.trim();if(!script){alert('Paste a script first.');return;}const scenes=sceneSplit(script);if(scenes.length>300){alert('Maximum 300 scenes per video.');return;}sceneEdits=scenes.map(n=>({narration:n,prompt:n}));drawTimeline();}
 function resetSceneEdits(){sceneEdits=[];document.getElementById('sceneTimeline').replaceChildren();document.getElementById('sceneInfo').textContent='Scene edits reset.';}
 function drawTimeline(){const root=document.getElementById('sceneTimeline');root.replaceChildren();document.getElementById('sceneInfo').textContent=sceneEdits.length+' scenes · Edit the narration and visual prompt separately.';sceneEdits.forEach((scene,i)=>{const card=document.createElement('div');card.style.cssText='border:1px solid #344869;border-radius:10px;padding:12px;margin:10px 0;background:#0c172b';const title=document.createElement('strong');title.textContent='Scene '+(i+1);card.appendChild(title);for(const [key,label] of [['narration','Narration (spoken)'],['prompt','AI image / Flow prompt (visual only)']]){const l=document.createElement('label');l.textContent=label;const t=document.createElement('textarea');t.style.minHeight='80px';t.value=scene[key];t.addEventListener('input',()=>{sceneEdits[i][key]=t.value;});card.appendChild(l);card.appendChild(t);}root.appendChild(card);});}
-function downloadFlowPrompts(){const script=document.getElementById('script').value.trim();if(!script){alert('Paste a script first.');return;}const style=document.querySelector('input[name=style]:checked').value;const bible=document.getElementById('characterBible').value.trim();const ratio=document.getElementById('ratio').value;const scenes=sceneEdits.length?sceneEdits.map(s=>s.prompt):sceneSplit(script);let txt='GOOGLE FLOW / VEO PROMPT SHEET\nStyle: '+style+' | Ratio: '+ratio+'\nCharacter: '+bible+'\n\nPaste the prompt for each scene into Flow, create the clip, download it, and add it in the Studio under Veo clips at the same scene number.\n\n';scenes.forEach((s,i)=>{txt+='--- SCENE '+(i+1)+' ---\n'+style+' style, aspect ratio '+ratio+'. '+(bible?('Consistent character: '+bible+'. '):'')+s+'\n\n';});const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:'text/plain'}));a.download='flow_prompts.txt';a.click();}
+function downloadFlowPrompts(){const script=document.getElementById('script').value.trim();if(!script){alert('Paste a script first.');return;}const style=document.querySelector('input[name=style]:checked').value;const bible=document.getElementById('characterBible').value.trim();const ratio=document.getElementById('ratio').value;const scenes=sceneEdits.length?sceneEdits.map(s=>s.prompt):sceneSplit(script);let txt='GOOGLE FLOW / VEO PROMPT SHEET\nScenes / clips: '+scenes.length+'\nStyle: '+style+' | Ratio: '+ratio+'\nCharacter: '+bible+'\n\nCreate each clip manually in Google Flow using your account, download clips in scene order, and upload them in the Studio under Veo / Flow scene clips. Flow account credits are not automatically used by this website.\n\n';scenes.forEach((s,i)=>{txt+='--- SCENE '+(i+1)+' ---\n'+style+' style, aspect ratio '+ratio+'. '+(bible?('Consistent character: '+bible+'. '):'')+s+'\n\n';});const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:'text/plain'}));a.download='flow_prompts.txt';a.click();}
 const PRESETS=[
 ['🧍','Stickman Hero','Stickman','the SAME hero character in every scene: a cute 2D cartoon stickman boy with a round white face, very big round eyes with black pupils, messy spiky brown hair, wearing a plain light-brown tan short-sleeve t-shirt, thin black stick arms and legs, round black mitten hands and white sneakers; thick clean black outlines, flat colors, friendly explainer cartoon style for children; never change his face, hair, shirt or shoes; no other main character'],
 ['🏛','Ancient Roman','3D Animated Pixar style','Marcus, an ancient Roman boy, short brown hair, white tunic with a red sash, leather sandals and a bronze bracelet. Keep his face, hair and clothes the same in every scene.'],
@@ -6253,7 +6290,15 @@ def _image_prompt(scene, style, ratio, continuity, character_bible=""):
     background only. The Character Bible is a CONDITIONAL reference,
     used only when the scene itself shows a person, and appears at most
     once; it must never drag a person into scenes about places,
-    objects, nature or concepts."""
+    objects, nature or concepts.
+
+    EXCEPTION (fix v6.8, hero lock): when the bible is exactly the
+    Stickman Hero bible, the hero is UNCONDITIONAL — he MUST appear in
+    every scene, acting out the sentence's meaning, with a locked warm
+    palette. The v6.7 text chain dropped the hero from person-less
+    motivational lines and the free model then repeated the same
+    cold-blue empty valley scene after scene; the lock exists so that
+    can never happen again, even when the reference path fails."""
     prompt = (f'Create ONE original, detailed, beautiful {style} illustration / film still, '
               f'for a vertical or horizontal short-form story. Frame aspect ratio {ratio}. '
               'No text, no subtitles, no logos, no watermark, no split panels. '
@@ -6262,7 +6307,9 @@ def _image_prompt(scene, style, ratio, continuity, character_bible=""):
               'Show the specific environment, objects and action the scene names.')
     if continuity:
         prompt += f' Overall story context (background only): {continuity[:900]}.'
-    if character_bible:
+    if _is_hero_bible(character_bible):
+        prompt += _hero_lock_clause(character_bible, 1400)
+    elif character_bible:
         prompt += (' Character reference — use ONLY when the scene itself shows a person '
                    'or the main character; if a person appears, they must look like this: '
                    f'{character_bible[:1400]}. Do NOT add a person to scenes about places, '
@@ -6393,20 +6440,58 @@ def _strip_pollinations_logo(output, w, h):
 # TRIGGER — server-side reconstruction of "preset exactly Stickman Hero":
 # the page sends no preset name, only the Character Bible text and the
 # style radio value, and clicking the preset sets exactly bible=hero bible
-# + style=Stickman. Both must match: another preset's bible, an edited
-# bible, or a different style all fall through to the unchanged text-only
-# chain. Gemini/upload modes never reach this code (they are handled by
-# the caller, never by _fetch_scene_picture).
+# + style=Stickman. Fix v6.8: the trigger depends on the BIBLE ONLY — the
+# v6.7 build also required style==Stickman, so a user who picked the hero
+# preset and then switched the style radio (e.g. to 2D Cartoon) silently
+# lost the entire reference path and got anime characters + blue valleys
+# instead. Another preset's bible or an edited bible still falls through
+# to the text-only chain. Gemini/upload modes never reach this code (they
+# are handled by the caller, never by _fetch_scene_picture).
+#
+# HERO LOCK (fix v6.8) — the same bible-only test gates the text path:
+# when the hero bible is selected, _image_prompt makes the hero
+# UNCONDITIONAL (he acts out every scene, even person-less motivational
+# lines) and locks a warm palette, so a failed reference can never again
+# degrade into empty cold-blue landscapes.
+#
+# PATH VISIBILITY (fix v6.8) — every Pollinations scene logs which path
+# produced it (reference-kontext / reference-mai / text-chain) into the
+# job log, visible in the Console job detail. A silent fallback must no
+# longer exist: the log always says what actually happened.
 #
 # ORDER — Kontext first, MAI fallback, then the existing text-only chain:
-# _generate_hero_reference_image returns False (never raises) when the
-# reference URL cannot be obtained or both reference calls fail, and the
-# caller then runs generate_pollinations_image exactly as before. A
-# reference failure therefore NEVER fails a render; worst case the scene
-# looks like a v6.5 text-only scene.
+# _generate_hero_reference_image returns the model name used, or False
+# (never raises) when the reference URL cannot be obtained or both
+# reference calls fail, and the caller then runs
+# generate_pollinations_image exactly as before. A reference failure
+# therefore NEVER fails a render; worst case the scene looks like a
+# v6.7 text-only scene — which now still carries the hero lock.
 _HERO_PRESET_NAME = 'Stickman Hero'
-_HERO_PRESET_STYLE = 'Stickman'
 _HERO_BIBLE = 'the SAME hero character in every scene: a cute 2D cartoon stickman boy with a round white face, very big round eyes with black pupils, messy spiky brown hair, wearing a plain light-brown tan short-sleeve t-shirt, thin black stick arms and legs, round black mitten hands and white sneakers; thick clean black outlines, flat colors, friendly explainer cartoon style for children; never change his face, hair, shirt or shoes; no other main character'
+# Warm palette anchor, shared by the reference prompt and the hero-lock
+# text clause: the free model drifts into cold blue grading when it is
+# not told otherwise (the owner's "blue type ki pic" complaint).
+_HERO_WARM_ANCHOR = ('Warm palette only: warm cream background, warm flat '
+                     'cartoon colors, golden sunlight; avoid cold blue '
+                     'grading, blue-tinted landscapes and dark blue tones.')
+
+
+def _is_hero_bible(bible):
+    """True when the bible text is exactly the Stickman Hero bible."""
+    return isinstance(bible, str) and bible.strip() == _HERO_BIBLE
+
+
+def _hero_lock_clause(character_bible, limit):
+    """Unconditional hero-presence clause for text prompts (fix v6.8):
+    the hero MUST appear in this scene acting out the sentence, never an
+    empty landscape, plus the warm palette lock."""
+    return (' The main character MUST appear in this scene, acting out what '
+            'the scene describes — even for motivational or abstract lines, '
+            'show him doing something that expresses the line (walking '
+            'forward with determination, climbing steps, holding his savings '
+            'jar, smiling with pride). He must look exactly like this: '
+            f'{character_bible[:limit]}. NEVER an empty landscape, place-only '
+            f'or object-only image. {_HERO_WARM_ANCHOR}')
 _HERO_REFERENCE_MODELS = ('kontext', 'mai-image-2.6-flash')
 # Stable Cloudinary home for the reference picture, under the app's
 # existing 'ai-video-studio/' asset prefix (videos use
@@ -6419,18 +6504,20 @@ _HERO_REFERENCE_URL = None
 
 
 def _is_hero_reference_scene(data):
-    """True only for the exact Stickman Hero preset (see block comment)."""
+    """True only for the exact Stickman Hero preset: the bible text alone
+    decides (fix v6.8 — the style radio no longer gates the trigger)."""
     if not isinstance(data, dict):
         return False
-    return ((data.get('characterBible') or '').strip() == _HERO_BIBLE
-            and data.get('style') == _HERO_PRESET_STYLE)
+    return _is_hero_bible(data.get('characterBible'))
 
 
 def _hero_reference_prompt(scene, style):
     """Compact edit-style prompt for a reference call: the picture carries
     the likeness, so the prompt carries the scene action/emotion plus the
     hero's identity anchors (kept short — this travels as a URL query
-    parameter). The scene text itself leads, as in _image_prompt."""
+    parameter). The scene text itself leads, as in _image_prompt. The
+    warm palette lock rides along (fix v6.8) so reference scenes cannot
+    drift into the cold-blue look either."""
     anchors = ('round white face, very big round eyes, messy spiky brown '
                'hair, plain light-brown tan t-shirt, thin black stick arms '
                'and legs, white sneakers')
@@ -6438,7 +6525,8 @@ def _hero_reference_prompt(scene, style):
             f'identical — {anchors}; never change his face, hair, shirt or '
             f'shoes, no other main character. '
             f'New scene in {style} illustration style: {str(scene)[:900]}. '
-            f'No text, no subtitles, no logos, no watermark, no split panels.')
+            f'No text, no subtitles, no logos, no watermark, no split panels. '
+            f'{_HERO_WARM_ANCHOR}')
 
 
 def _hero_reference_url():
@@ -6493,15 +6581,24 @@ def _hero_reference_url():
     return url or None
 
 
+# Path labels surfaced in the job log (fix v6.8): the label is derived
+# from the model name the reference call actually used, so the log can
+# never claim a path that did not run.
+_HERO_PATH_LABELS = {'kontext': 'reference-kontext',
+                     'mai-image-2.6-flash': 'reference-mai'}
+
+
 def _generate_hero_reference_image(scene, style, ratio, output, seed=42, token=""):
     """One reference-image scene attempt: Kontext, then MAI on failure.
-    Returns True on the first success, False when the reference URL is
-    unavailable or both models fail — never raises. No backoff sleeps
-    here: these are two single-shot attempts and the text-only chain
-    that follows already retries with backoff. The Pollinations key
-    (job form key, else the server's POLLINATIONS_API_KEY env var,
-    resolved by the caller) is sent only as a Bearer header, never in
-    the URL and never in any error/log line."""
+    Returns the MODEL NAME used on success ('kontext' or
+    'mai-image-2.6-flash'), or False when the reference URL is
+    unavailable or both models fail — never raises. The caller maps the
+    model name to a job-log path label, so a fallback is always visible.
+    No backoff sleeps here: these are two single-shot attempts and the
+    text-only chain that follows already retries with backoff. The
+    Pollinations key (job form key, else the server's
+    POLLINATIONS_API_KEY env var, resolved by the caller) is sent only
+    as a Bearer header, never in the URL and never in any error/log line."""
     ref_url = _hero_reference_url()
     if not ref_url:
         return False
@@ -6518,7 +6615,7 @@ def _generate_hero_reference_image(scene, style, ratio, output, seed=42, token="
                + f'?model={model}&image={ref_q}&width={w}&height={h}&seed={int(seed)}')
         try:
             _pollinations_fetch(url, headers, output)
-            return True
+            return model
         except Exception:
             continue
     return False
@@ -6549,12 +6646,20 @@ def generate_pollinations_image(scene, style, ratio, output, continuity, charact
     through untouched.
     """
     prompt = _image_prompt(scene, style, ratio, continuity, character_bible)
+    # The legacy short prompt (last URL variant) carries its own bible
+    # clause: the hero lock must apply here too (fix v6.8), or the final
+    # fallback variant would quietly drop the hero again.
+    if _is_hero_bible(character_bible):
+        short_bible = _hero_lock_clause(character_bible, 200)
+    elif character_bible:
+        short_bible = ('Character reference (use ONLY if the scene itself shows a person; '
+                       f'never add a person to place/object/nature scenes): {character_bible[:200]}. ')
+    else:
+        short_bible = ''
     short_prompt = (f'{style} illustration, detailed, colorful. '
                     'Illustrate exactly what this scene describes — its places, objects, '
                     f'weather and actions: {scene[:500]}. '
-                    + (('Character reference (use ONLY if the scene itself shows a person; '
-                        f'never add a person to place/object/nature scenes): {character_bible[:200]}. ')
-                       if character_bible else '')
+                    + short_bible
                     + 'No text, no watermark, no split panels.')
     w, h = {'9:16': (720, 1280), '16:9': (1280, 720), '1:1': (1024, 1024)}.get(ratio, (720, 1280))
     headers = {'User-Agent': _BROWSER_UA, 'Accept': 'image/*'}
@@ -6886,7 +6991,11 @@ def _free_chain(data, chosen, allow_stock=True):
 
 
 def _attempt_free_image(source, data, visual_prompt, image_path, seed, continuity):
-    """One attempt at one FREE source. Raises on failure."""
+    """One attempt at one FREE source. Raises on failure. Returns a path
+    label for the job log: 'reference-kontext' / 'reference-mai' when a
+    reference call produced the image, 'text-chain' for the Pollinations
+    text-only chain, or the source name for other sources. Callers that
+    predate the labels ignore the return value."""
     style = data.get('style', '2D Cartoon')
     ratio = data.get('ratio', '9:16')
     bible = data.get('characterBible', '')
@@ -6898,23 +7007,32 @@ def _attempt_free_image(source, data, visual_prompt, image_path, seed, continuit
         # Fix v6.7: Stickman Hero scenes try reference-image generation
         # first (Kontext, then MAI). A False return means the reference
         # URL was unavailable or both models failed — fall through to the
-        # unchanged text-only chain below; a reference failure never
-        # fails the render. Every other preset keeps the text-only chain.
+        # text-only chain below; a reference failure never fails the
+        # render. Fix v6.8: the path actually used is RETURNED (not just
+        # swallowed) so _fetch_scene_picture can log it — a silent
+        # fallback must no longer exist. Every other preset keeps the
+        # text-only chain.
         if _is_hero_reference_scene(data):
             try:
-                if _generate_hero_reference_image(visual_prompt, style, ratio,
-                                                  image_path, seed=seed, token=key):
-                    return
+                used_model = _generate_hero_reference_image(
+                    visual_prompt, style, ratio, image_path, seed=seed, token=key)
             except Exception:
-                pass
+                used_model = False
+            if used_model:
+                if isinstance(used_model, str) and used_model in _HERO_PATH_LABELS:
+                    return _HERO_PATH_LABELS[used_model]
+                return 'reference'
         generate_pollinations_image(visual_prompt, style, ratio, image_path, continuity, bible,
                                     seed=seed, token=key)
+        return 'text-chain'
     elif source == 'cloudflare':
         generate_cloudflare_image(data['cfAccount'], data['cfToken'], visual_prompt, style,
                                   ratio, image_path, continuity, bible, seed=seed)
+        return source
     else:  # stock-photo providers (Openverse needs no key)
         key = data.get('pixabayKey') if source == 'pixabay' else data.get('pexelsKey')
         generate_stock_photo(source, key, visual_prompt, ratio, image_path, seed=seed)
+        return source
 
 
 def _fetch_scene_picture(job, data, scene_index, scene_no, visual_prompt, image_path,
@@ -6939,7 +7057,7 @@ def _fetch_scene_picture(job, data, scene_index, scene_no, visual_prompt, image_
         try:
             if source == 'pollinations' and scene_index:
                 time.sleep(3)  # gentle pace on the free service, to avoid hitting limits
-            _attempt_free_image(source, data, visual_prompt, image_path, seed, continuity)
+            path_used = _attempt_free_image(source, data, visual_prompt, image_path, seed, continuity)
         except Exception as exc:
             last_error = exc
             if pos + 1 < len(chain):
@@ -6950,6 +7068,13 @@ def _fetch_scene_picture(job, data, scene_index, scene_no, visual_prompt, image_
             used = f'{label} photo' if source in _STOCK_SOURCES else label
             update(job, progress,
                    f'Picture {scene_no}: {_SOURCE_LABELS[chain[0]]} failed — {used} used instead.')
+        # Fix v6.8: log which image path actually produced this scene
+        # (reference-kontext / reference-mai / text-chain). The line lands
+        # in the job log shown by the Console job detail, so a fallback is
+        # visible instead of silent. Non-Pollinations sources keep their
+        # existing rescue lines above.
+        if source == 'pollinations' and path_used:
+            update(job, progress, f'Picture {scene_no}: image via {path_used}.')
         return source, pos > 0
     err = last_error if last_error is not None else RuntimeError('No free image source is available.')
     if not allow_stock:
@@ -8985,13 +9110,18 @@ def verify():
 
 @app.get('/api/voices')
 def voices_catalog():
-    """The COMPLETE free Edge TTS catalog (hundreds of voices) - downloaded from the internet the first time
-    and cached, then available instantly afterwards."""
+    """The free Edge TTS catalog, restricted to English, Urdu and Hindi
+    (fix v6.8 voices trim) - downloaded from the internet the first time
+    and cached, then available instantly afterwards. The filter is applied
+    to BOTH the cached read and the fresh download, so a stale pre-trim
+    cache file can never leak a removed language back into the picker."""
     try:
         if VOICES_CACHE_FILE.exists() and time.time() - VOICES_CACHE_FILE.stat().st_mtime < 7 * 86400:
             cached = json.loads(VOICES_CACHE_FILE.read_text(encoding='utf-8'))
             if isinstance(cached, list) and cached:
-                return jsonify(voices=cached, cached=True)
+                kept = [v for v in cached if _voice_entry_kept(v)]
+                if kept:
+                    return jsonify(voices=kept, cached=True)
     except Exception:
         pass
     try:
@@ -9001,6 +9131,7 @@ def voices_catalog():
         out = [{'short': v.get('ShortName', ''), 'locale': v.get('Locale', ''),
                 'gender': v.get('Gender', ''), 'name': v.get('FriendlyName', v.get('ShortName', ''))}
                for v in raw if v.get('ShortName')]
+        out = [v for v in out if _voice_entry_kept(v)]
         out.sort(key=lambda x: (x['locale'], x['gender'], x['short']))
         VOICES_CACHE_FILE.write_text(json.dumps(out), encoding='utf-8')
         return jsonify(voices=out, cached=False)
