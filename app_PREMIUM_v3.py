@@ -1024,7 +1024,7 @@ video,img{max-width:100%}
 <label>Upload background music (optional; it will be mixed in automatically at a low volume)</label><input id="musicFile" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg"></div>
 
 <div class="card"><h2>5 · Motion, Transitions & Captions</h2>
-<div class="two"><div><label>Camera motion</label><select id="motion"><option value="studio">Studio</option><option value="kenburns">Ken Burns (slow zoom + drift)</option><option value="zoomin">Slow zoom in</option><option value="zoomout">Slow zoom out</option><option value="panleft">Pan left</option><option value="panright">Pan right</option><option value="drone">Drone rise</option><option value="crash">Crash zoom (snap and hold)</option><option value="off">No motion</option><option value="mix">Mix of all</option></select></div>
+<div class="two"><div><label>Camera motion</label><select id="motion"><option value="alive">Alive (visible zoom + drift) — recommended</option><option value="studio">Studio (very slow, subtle)</option><option value="kenburns">Ken Burns (slow zoom + drift)</option><option value="zoomin">Slow zoom in</option><option value="zoomout">Slow zoom out</option><option value="panleft">Pan left</option><option value="panright">Pan right</option><option value="drone">Drone rise</option><option value="crash">Crash zoom (snap and hold)</option><option value="swoop">Swoop (zoom out + drift)</option><option value="off">No motion</option><option value="mix">Mix of all</option></select></div>
 <div><label>Transitions</label><select id="transitions" onchange="toggleTransPicks()"><option value="cut">Hard cut</option><option value="crossfade">Crossfade</option><option value="dipblack">Dip to black</option><option value="whiteflash">White flash</option><option value="slide">Smooth slide</option><option value="glitch">Glitch (pixels)</option><option value="glow">Dreamy glow</option><option value="zoompunch">Zoom punch</option><option value="mixed" selected>Mix of all</option><option value="several">Several together (tick below)</option></select></div></div>
 <div id="transPicks" style="display:none"><label>Tick the transitions to rotate through (in this order)</label><div class="rowflex">
 <label class="check"><input type="checkbox" name="tpick" value="crossfade"> Crossfade</label><label class="check"><input type="checkbox" name="tpick" value="dipblack"> Dip to black</label><label class="check"><input type="checkbox" name="tpick" value="whiteflash"> White flash</label><label class="check"><input type="checkbox" name="tpick" value="slide"> Smooth slide</label><label class="check"><input type="checkbox" name="tpick" value="glitch"> Glitch (pixels)</label><label class="check"><input type="checkbox" name="tpick" value="glow"> Dreamy glow</label><label class="check"><input type="checkbox" name="tpick" value="zoompunch"> Zoom punch</label>
@@ -1141,7 +1141,7 @@ function syncStyleCards(){const cur=document.querySelector('input[name=style]:ch
 function toggleTransPicks(){const t=document.getElementById('transitions');const row=document.getElementById('transPicks');if(t&&row)row.style.display=(t.value==='several')?'block':'none';}
 function collectSettings(){return{script:document.getElementById('script').value,characterBible:document.getElementById('characterBible').value,style:document.querySelector('input[name=style]:checked').value,voice:document.getElementById('voice').value,ratio:document.getElementById('ratio').value,speed:document.getElementById('speed').value,imageMode:document.getElementById('imageMode').value,transitions:document.getElementById('transitions').value,transitionPicks:[...document.querySelectorAll('input[name=tpick]:checked')].map(c=>c.value).join(','),sceneSplit:document.getElementById('sceneSplit').value,motion:document.getElementById('motion').value,captionStyle:document.getElementById('captionStyle').value,captions:document.getElementById('captions').checked};}
 function applySettings(s){if(!s)return;document.getElementById('script').value=s.script||'';document.getElementById('characterBible').value=s.characterBible||'';const r=document.querySelector('input[name=style][value="'+s.style+'"]');if(r)r.checked=true;if(s.voice){const sel=document.getElementById('voice');const o=document.createElement('option');o.value=s.voice;o.textContent=s.voice;sel.appendChild(o);sel.value=s.voice;}
-document.getElementById('ratio').value=s.ratio||'9:16';document.getElementById('speed').value=s.speed||'+0%';const imSel=document.getElementById('imageMode');imSel.value=s.imageMode||'pollinations';if(!imSel.value)imSel.value='pollinations';document.getElementById('sceneSplit').value=s.sceneSplit||'sentences';const trSel=document.getElementById('transitions');trSel.value=s.transitions||'mixed';if(!trSel.value)trSel.value='mixed';toggleTransPicks();if(s.transitionPicks){const pickSet=new Set(String(s.transitionPicks).split(','));document.querySelectorAll('input[name=tpick]').forEach(c=>{c.checked=pickSet.has(c.value);});}let mv=s.motion||'studio';if(mv==='pan'||mv==='on')mv='panright';const moSel=document.getElementById('motion');moSel.value=mv;if(!moSel.value)moSel.value='studio';const capSel=document.getElementById('captionStyle');capSel.value=s.captionStyle||'bold';if(!capSel.value)capSel.value='bold';document.getElementById('captions').checked=s.captions!==false&&capSel.value!=='off';syncCaptionUI();syncStyleCards();sceneEdits=[];document.getElementById('sceneTimeline').replaceChildren();}
+document.getElementById('ratio').value=s.ratio||'9:16';document.getElementById('speed').value=s.speed||'+0%';const imSel=document.getElementById('imageMode');imSel.value=s.imageMode||'pollinations';if(!imSel.value)imSel.value='pollinations';document.getElementById('sceneSplit').value=s.sceneSplit||'sentences';const trSel=document.getElementById('transitions');trSel.value=s.transitions||'mixed';if(!trSel.value)trSel.value='mixed';toggleTransPicks();if(s.transitionPicks){const pickSet=new Set(String(s.transitionPicks).split(','));document.querySelectorAll('input[name=tpick]').forEach(c=>{c.checked=pickSet.has(c.value);});}let mv=s.motion||'alive';if(mv==='pan'||mv==='on')mv='panright';const moSel=document.getElementById('motion');moSel.value=mv;if(!moSel.value)moSel.value='alive';const capSel=document.getElementById('captionStyle');capSel.value=s.captionStyle||'bold';if(!capSel.value)capSel.value='bold';document.getElementById('captions').checked=s.captions!==false&&capSel.value!=='off';syncCaptionUI();syncStyleCards();sceneEdits=[];document.getElementById('sceneTimeline').replaceChildren();}
 async function saveProject(){const name=document.getElementById('projectName').value.trim();if(!name){alert('Enter a project name.');return;}const sel=document.getElementById('scriptSelect');try{const x=await api('/api/projects/save',{id:sel.value||'',name,data:collectSettings()});document.getElementById('projectMsg').textContent='Project saved: '+name;await loadProjects();document.getElementById('scriptSelect').value=x.id;}catch(e){document.getElementById('projectMsg').textContent='Save error: '+e.message;}}
 async function loadProjects(){try{const r=await fetch('/api/projects');const x=await r.json();const sel=document.getElementById('scriptSelect');const cur=sel.value;sel.innerHTML='<option value="">— Choose a project —</option>';x.projects.forEach(p=>{const o=document.createElement('option');o.value=p.id;o.textContent=p.name;sel.appendChild(o);});if(cur)sel.value=cur;
 const badge=document.getElementById('draftCount');badge.style.display=x.projects.length?'inline-block':'none';badge.textContent=x.projects.length;
@@ -6298,7 +6298,10 @@ def _image_prompt(scene, style, ratio, continuity, character_bible=""):
     palette. The v6.7 text chain dropped the hero from person-less
     motivational lines and the free model then repeated the same
     cold-blue empty valley scene after scene; the lock exists so that
-    can never happen again, even when the reference path fails."""
+    can never happen again, even when the reference path fails.
+    Fix v6.10 restructures the hero prompt hero-first (style + hero + warmth
+    lead, scene follows) because the scene-first order was proven to make
+    Flux default to valleys."""
     prompt = (f'Create ONE original, detailed, beautiful {style} illustration / film still, '
               f'for a vertical or horizontal short-form story. Frame aspect ratio {ratio}. '
               'No text, no subtitles, no logos, no watermark, no split panels. '
@@ -6308,7 +6311,12 @@ def _image_prompt(scene, style, ratio, continuity, character_bible=""):
     if continuity:
         prompt += f' Overall story context (background only): {continuity[:900]}.'
     if _is_hero_bible(character_bible):
-        prompt += _hero_lock_clause(character_bible, 1400)
+        # Fix v6.10: hero-first prompt (see _hero_first_prompt). The v6.9
+        # scene-first prompt buried style/hero/warmth behind ~1400 chars
+        # and Flux defaulted to epic cold-blue valleys for abstract lines
+        # (proven by reproduction); leading with hero+style+warmth is what
+        # makes the model actually draw the hero.
+        return _hero_first_prompt(scene, style, ratio)
     elif character_bible:
         prompt += (' Character reference — use ONLY when the scene itself shows a person '
                    'or the main character; if a person appears, they must look like this: '
@@ -6482,7 +6490,9 @@ def _is_hero_bible(bible):
 
 
 def _hero_lock_clause(character_bible, limit):
-    """Unconditional hero-presence clause for text prompts (fix v6.8):
+    """Legacy hero clause (fix v6.8; v6.10 prompts use _hero_first_prompt
+    instead, which leads with the hero rather than appending this clause):
+    Unconditional hero-presence clause for text prompts:
     the hero MUST appear in this scene acting out the sentence, never an
     empty landscape, plus the warm palette lock."""
     return (' The main character MUST appear in this scene, acting out what '
@@ -6492,7 +6502,36 @@ def _hero_lock_clause(character_bible, limit):
             'jar, smiling with pride). He must look exactly like this: '
             f'{character_bible[:limit]}. NEVER an empty landscape, place-only '
             f'or object-only image. {_HERO_WARM_ANCHOR}')
-_HERO_REFERENCE_MODELS = ('kontext', 'mai-image-2.6-flash')
+# Short hero anchors for TEXT prompts (fix v6.10): the full 1400-char bible
+# buried style/hero/warmth at the end of a long prompt and Flux defaulted
+# to epic cold-blue valleys for abstract lines (proven by reproduction:
+# the same full prompt gave a dark valley + tiny figure, a short hero-early
+# prompt gave a cartoon boy). Text prompts now carry only these short
+# anchors, up front. The exact-match bible TRIGGER is unchanged — it still
+# compares the full bible text, only the prompt wording/length changed.
+_HERO_SHORT_ANCHORS = ('round white face, very big round eyes, messy spiky brown '
+                       'hair, plain light-brown tan t-shirt, thin black stick arms '
+                       'and legs, white sneakers')
+
+
+def _hero_first_prompt(scene, style, ratio):
+    """Hero-first text prompt (fix v6.10). Leads with style + hero + warmth
+    BEFORE the scene text, and explicitly forbids the observed failure (tiny
+    figure in a vast landscape, cold blue grading). Keeps every phrase the
+    carried tests assert: 'MUST appear', the identity anchors, 'warm cream',
+    'avoid cold blue', 'NEVER an empty landscape'."""
+    return (f'{style} illustration, LARGE prominent cartoon hero in the foreground: '
+            f'a cute 2D cartoon stickman boy, {_HERO_SHORT_ANCHORS}. '
+            f'The main character MUST appear LARGE in the foreground, acting out the scene — '
+            f'NOT a tiny figure in a vast landscape, NEVER an empty landscape. '
+            f'Warm palette only: warm cream background, warm flat cartoon colors, golden sunlight; '
+            f'avoid cold blue grading, blue-tinted landscapes and dark blue tones. '
+            f'Scene to act out: {scene[:900]}. '
+            f'No text, no subtitles, no logos, no watermark, no split panels. '
+            f'Frame aspect ratio {ratio}.')
+
+
+_HERO_REFERENCE_MODELS = ('kontext', 'microsoft/mai-image-2.6-flash')
 # Stable Cloudinary home for the reference picture, under the app's
 # existing 'ai-video-studio/' asset prefix (videos use
 # 'ai-video-studio/<job>', state docs 'ai-video-studio/state-<kind>-<h>').
@@ -6501,6 +6540,12 @@ _HERO_REFERENCE_MODELS = ('kontext', 'mai-image-2.6-flash')
 # and re-resolved after a restart (when the cache is empty again).
 _HERO_REFERENCE_PUBLIC_ID = 'ai-video-studio/hero-reference'
 _HERO_REFERENCE_URL = None
+# Last reference-path failure reason (fix v6.10): status codes / short words
+# ONLY — never URLs, keys, tokens or exception text (those could carry a
+# URL). Read by _fetch_scene_picture to log WHY the reference path fell
+# back to the text chain. Reset on every _generate_hero_reference_image
+# call so a reason can never leak into another scene's log.
+_LAST_HERO_REF_FAILURE = None
 
 
 def _is_hero_reference_scene(data):
@@ -6585,22 +6630,28 @@ def _hero_reference_url():
 # from the model name the reference call actually used, so the log can
 # never claim a path that did not run.
 _HERO_PATH_LABELS = {'kontext': 'reference-kontext',
-                     'mai-image-2.6-flash': 'reference-mai'}
+                     'microsoft/mai-image-2.6-flash': 'reference-mai'}
 
 
 def _generate_hero_reference_image(scene, style, ratio, output, seed=42, token=""):
     """One reference-image scene attempt: Kontext, then MAI on failure.
     Returns the MODEL NAME used on success ('kontext' or
-    'mai-image-2.6-flash'), or False when the reference URL is
-    unavailable or both models fail — never raises. The caller maps the
+    'microsoft/mai-image-2.6-flash'), or False when the reference URL is
+    unavailable or both models fail — never raises. On failure it also sets
+    _LAST_HERO_REF_FAILURE (status codes only) so the job log can say WHY
+    the reference path fell back instead of silently saying 'text-chain'.
+    The caller maps the
     model name to a job-log path label, so a fallback is always visible.
     No backoff sleeps here: these are two single-shot attempts and the
     text-only chain that follows already retries with backoff. The
     Pollinations key (job form key, else the server's
     POLLINATIONS_API_KEY env var, resolved by the caller) is sent only
     as a Bearer header, never in the URL and never in any error/log line."""
+    global _LAST_HERO_REF_FAILURE
+    _LAST_HERO_REF_FAILURE = None
     ref_url = _hero_reference_url()
     if not ref_url:
+        _LAST_HERO_REF_FAILURE = 'no-reference-url'
         return False
     prompt = _hero_reference_prompt(scene, style)
     w, h = {'9:16': (720, 1280), '16:9': (1280, 720), '1:1': (1024, 1024)}.get(ratio, (720, 1280))
@@ -6610,14 +6661,19 @@ def _generate_hero_reference_image(scene, style, ratio, output, seed=42, token="
     quoted = urllib.parse.quote(prompt, safe='')
     ref_q = urllib.parse.quote(ref_url, safe='')
     gen_base = 'https://gen.pollinations.ai/image/'
+    failures = []
     for model in _HERO_REFERENCE_MODELS:
         url = (gen_base + quoted
                + f'?model={model}&image={ref_q}&width={w}&height={h}&seed={int(seed)}')
         try:
             _pollinations_fetch(url, headers, output)
             return model
-        except Exception:
+        except Exception as exc:
+            # Status code only: never str(exc) (it may carry a URL).
+            code = getattr(exc, 'code', None)
+            failures.append(f'{model} {code}' if code else f'{model} error')
             continue
+    _LAST_HERO_REF_FAILURE = ', '.join(failures)
     return False
 
 
@@ -6650,17 +6706,26 @@ def generate_pollinations_image(scene, style, ratio, output, continuity, charact
     # clause: the hero lock must apply here too (fix v6.8), or the final
     # fallback variant would quietly drop the hero again.
     if _is_hero_bible(character_bible):
-        short_bible = _hero_lock_clause(character_bible, 200)
-    elif character_bible:
-        short_bible = ('Character reference (use ONLY if the scene itself shows a person; '
-                       f'never add a person to place/object/nature scenes): {character_bible[:200]}. ')
+        # Fix v6.10: hero-first short prompt (same restructure as the full
+        # prompt). Keeps the '{style} illustration, detailed, colorful.'
+        # prefix this last variant is keyed on, plus every phrase the
+        # carried tests assert.
+        short_prompt = (f'{style} illustration, detailed, colorful. '
+                        f'LARGE prominent cartoon hero in the foreground: a cute 2D cartoon stickman boy, {_HERO_SHORT_ANCHORS}. '
+                        f'The main character MUST appear LARGE in the foreground, NOT a tiny figure in a vast landscape, NEVER an empty landscape. '
+                        f'Warm palette only: warm cream background, warm flat cartoon colors, golden sunlight; avoid cold blue grading, blue-tinted landscapes and dark blue tones. '
+                        f'Scene to act out: {scene[:500]}. No text, no watermark, no split panels.')
     else:
-        short_bible = ''
-    short_prompt = (f'{style} illustration, detailed, colorful. '
-                    'Illustrate exactly what this scene describes — its places, objects, '
-                    f'weather and actions: {scene[:500]}. '
-                    + short_bible
-                    + 'No text, no watermark, no split panels.')
+        if character_bible:
+            short_bible = ('Character reference (use ONLY if the scene itself shows a person; '
+                           f'never add a person to place/object/nature scenes): {character_bible[:200]}. ')
+        else:
+            short_bible = ''
+        short_prompt = (f'{style} illustration, detailed, colorful. '
+                        'Illustrate exactly what this scene describes — its places, objects, '
+                        f'weather and actions: {scene[:500]}. '
+                        + short_bible
+                        + 'No text, no watermark, no split panels.')
     w, h = {'9:16': (720, 1280), '16:9': (1280, 720), '1:1': (1024, 1024)}.get(ratio, (720, 1280))
     headers = {'User-Agent': _BROWSER_UA, 'Accept': 'image/*'}
     if token:
@@ -7060,6 +7125,10 @@ def _fetch_scene_picture(job, data, scene_index, scene_no, visual_prompt, image_
             path_used = _attempt_free_image(source, data, visual_prompt, image_path, seed, continuity)
         except Exception as exc:
             last_error = exc
+            if (source == 'pollinations' and _is_hero_reference_scene(data)
+                    and _LAST_HERO_REF_FAILURE):
+                update(job, progress,
+                       f'Picture {scene_no}: reference failed ({_LAST_HERO_REF_FAILURE}).')
             if pos + 1 < len(chain):
                 update(job, progress,
                        f'Picture {scene_no}: {label} failed - trying {_SOURCE_LABELS[chain[pos + 1]]} next...')
@@ -7074,6 +7143,10 @@ def _fetch_scene_picture(job, data, scene_index, scene_no, visual_prompt, image_
         # visible instead of silent. Non-Pollinations sources keep their
         # existing rescue lines above.
         if source == 'pollinations' and path_used:
+            if (path_used == 'text-chain' and _is_hero_reference_scene(data)
+                    and _LAST_HERO_REF_FAILURE):
+                update(job, progress,
+                       f'Picture {scene_no}: reference failed ({_LAST_HERO_REF_FAILURE}) — using text-chain.')
             update(job, progress, f'Picture {scene_no}: image via {path_used}.')
         return source, pos > 0
     err = last_error if last_error is not None else RuntimeError('No free image source is available.')
@@ -7089,7 +7162,7 @@ def _fetch_scene_picture(job, data, scene_index, scene_no, visual_prompt, image_
     raise err
 
 
-_MOTION_MIX_CYCLE = ['kenburns', 'zoomin', 'panright', 'drone', 'zoomout', 'panleft', 'crash']
+_MOTION_MIX_CYCLE = ['kenburns', 'zoomin', 'panright', 'drone', 'zoomout', 'panleft', 'crash', 'alive', 'swoop']
 
 
 def _motion_filter(motion_mode, frames, w, h, fps, scene_index=0):
@@ -7097,9 +7170,14 @@ def _motion_filter(motion_mode, frames, w, h, fps, scene_index=0):
     frame. Modes: studio (very slow subtle zoom), kenburns (slow zoom +
     drift), zoomin, zoomout, panleft, panright, drone (slow zoom out +
     upward drift), crash (fast zoom in the first ~25% of the scene, then
-    hold), off, mix (per-scene rotation). Legacy values from older saved
-    projects ('pan', 'on') map to panright."""
-    m = str(motion_mode or 'off').lower()
+    hold), alive (fix v6.10 default: clearly visible zoom-in + drift, so a
+    scene never looks like a still on a phone screen), swoop (visible
+    zoom-out + left drift), off, mix (per-scene rotation). Legacy values
+    from older saved projects ('pan', 'on') map to panright. An empty /
+    missing value means the visible default ('alive'), NOT static: the
+    v6.9 default ('studio', ~4% zoom over a scene) looked static, which
+    is why owners reported 'no animation'. Only explicit 'off' is static."""
+    m = str(motion_mode or 'alive').lower()
     if m in ('on', 'pan'):
         m = 'panright'
     if m == 'mix':
@@ -7129,6 +7207,14 @@ def _motion_filter(motion_mode, frames, w, h, fps, scene_index=0):
     elif m == 'crash':
         q = max(2, round(frames * 0.25))
         z, x, y = f"if(lt(on,{q}),1+0.38*on/{q},1.38)", cx, cy
+    elif m == 'alive':
+        z = "1.12+0.0018*on"
+        x = f"{cx}+(on/{last})*iw*0.03"
+        y = cy
+    elif m == 'swoop':
+        z = "max(1.10,1.30-0.0018*on)"
+        x = f"{cx}-(on/{last})*iw*0.03"
+        y = cy
     else:  # unknown value: safest is a static frame
         return None
     return f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={fps}"
@@ -7689,7 +7775,7 @@ def run_job(job, data):
                 continue
             img=work/f'frame_{i:04d}.jpg'
             fade = not use_xfade and (transition in ('fade','crossfade') or (transition in ('mixed','several') and i%2==1))
-            motion_mode = data.get('motion', 'studio')
+            motion_mode = data.get('motion', 'alive')
             zp = _motion_filter(motion_mode, frames, w, h, fps, scene_index=i)
             vf = [zp] if zp else [f'scale={w}:{h}']
             if fade and duration>0.8:
@@ -7855,7 +7941,7 @@ def _save_job_meta(job, data, scenes, edits, durations, word_timings,
                 'captionStyle': str(data.get('captionStyle', 'bold')),
                 'transitions': data.get('transitions', 'mixed'),
                 'transitionPicks': str(data.get('transitionPicks', '')),
-                'motion': data.get('motion', 'studio'),
+                'motion': data.get('motion', 'alive'),
                 'imageMode': data.get('imageMode', 'pollinations'),
                 'characterBible': data.get('characterBible', ''),
                 'accountName': str(data.get('accountName', '')),
@@ -7965,7 +8051,7 @@ def _render_segment_for_rebuild(work, i, scene_text, kind, clip_src, durations,
     if not img.exists():
         raise RuntimeError(f'Scene {i + 1}: the scene frame is gone.')
     fade = not use_xfade and (transition in ('fade', 'crossfade') or (transition in ('mixed', 'several') and i % 2 == 1))
-    zp = _motion_filter(settings.get('motion', 'studio'), frames, w, h, fps, scene_index=i)
+    zp = _motion_filter(settings.get('motion', 'alive'), frames, w, h, fps, scene_index=i)
     vf = [zp] if zp else [f'scale={w}:{h}']
     if fade and duration > 0.8:
         fd = min(.28, duration / 5)
@@ -8533,7 +8619,7 @@ def launch():
     data['transitionPicks'] = ','.join(q for q in _tpicks if q in ('crossfade', 'dipblack', 'whiteflash', 'slide', 'glitch', 'glow', 'zoompunch'))
     _tr = str(data.get('transitions', 'mixed')).lower()
     data['transitions'] = _tr if _tr in ('cut', 'fade', 'crossfade', 'dipblack', 'whiteflash', 'slide', 'glitch', 'glow', 'zoompunch', 'mixed', 'several') else 'mixed'
-    data['motion'] = str(data.get('motion', 'studio')).lower()
+    data['motion'] = str(data.get('motion', 'alive')).lower()
     data['captionStyle'] = str(data.get('captionStyle', 'bold')).lower()
     files=request.files.getlist('images')
     if len(files)>100: return jsonify(error='Maximum 100 uploaded pictures.'),400
