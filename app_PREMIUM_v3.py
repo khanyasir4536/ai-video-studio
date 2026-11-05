@@ -6222,7 +6222,23 @@ def wrap_text(draw, text, fnt, max_width):
     return lines
 
 
+# v4: Full-HD output by default. Set STUDIO_HD=0 on a low-memory host to go back to 720p.
+STUDIO_HD = os.environ.get('STUDIO_HD', '1') != '0'
+# v4: music ducks under the voice (sidechain) and the mix is loudness-normalised
+# to -14 LUFS (Reels/Shorts/TikTok level).
+MUSIC_DUCK_FILTER = ('[1:a]aresample=44100,asplit=2[v1][vsc];'
+                     '[2:a]aresample=44100,volume=0.35[m];'
+                     '[m][vsc]sidechaincompress=threshold=0.02:ratio=10:attack=15:release=450[md];'
+                     '[v1][md]amix=inputs=2:duration=first:normalize=0,'
+                     'loudnorm=I=-14:TP=-1.5:LRA=11[aout]')
+VIDEO_FPS = 30 if STUDIO_HD else 24
+VIDEO_CRF = os.environ.get('STUDIO_CRF', '20')
+VIDEO_PRESET = os.environ.get('STUDIO_PRESET', 'veryfast')
+
+
 def dimensions(ratio):
+    if STUDIO_HD:
+        return {'9:16': (1080, 1920), '16:9': (1920, 1080), '1:1': (1080, 1080)}.get(ratio, (1080, 1920))
     return {'9:16': (720, 1280), '16:9': (1280, 720), '1:1': (900, 900)}.get(ratio, (720, 1280))
 
 
@@ -6514,6 +6530,37 @@ _HERO_SHORT_ANCHORS = ('round white face, very big round eyes, messy spiky brown
                        'and legs, white sneakers')
 
 
+_SPEECH_FILLERS = re.compile(r"\b(said|says|asked|asks|replied|told|shouted|whispered|"
+                             r"i think|you know|well|so|then|and then|suddenly)\b", re.I)
+
+
+def _visual_shot(scene):
+    """v4: turn a narration line into a short VISUAL shot description.
+    Narration is spoken text ("Daddy, that's not my name!"); image models
+    draw better from what the camera sees. Without an LLM this strips the
+    dialogue quotes, speaker tags and filler words and frames the rest as a
+    shot.
+    v6.11 adaptation: applied to the SCENE portion of the hero-first prompt
+    only (see _hero_first_prompt) — the hero-first lead stays first and
+    untouched, and the non-hero prompt stays byte-identical to v6.10.
+    (v4's note about planner-written prompts passing through does not apply
+    here: scene-edit narrations also pass through this conversion when the
+    hero is selected, since it only strips tags/quotes/fillers.)"""
+    t = str(scene or '').strip()
+    t = re.sub(r'^\s*[A-Za-z0-9_]{1,12}\s*:\s*', '', t)          # speaker tag
+    quoted = re.findall(r'["\u201c](.+?)["\u201d]', t)
+    t = re.sub(r'["\u201c\u201d]', '', t)
+    t = _SPEECH_FILLERS.sub(' ', t)
+    t = re.sub(r'\s+', ' ', t).strip(' ,.')
+    if not t and quoted:
+        t = quoted[0]
+    is_speech = bool(re.search(r'[?!]$', str(scene).strip())) or t.lower().startswith(('i ', "i'm", 'you', 'we '))
+    if is_speech:
+        return (f'a character speaking with a clear facial expression that matches the line '
+                f'\"{t[:300]}\", medium close-up, natural setting that fits the story')
+    return t[:900]
+
+
 def _hero_first_prompt(scene, style, ratio):
     """Hero-first text prompt (fix v6.10). Leads with style + hero + warmth
     BEFORE the scene text, and explicitly forbids the observed failure (tiny
@@ -6526,8 +6573,8 @@ def _hero_first_prompt(scene, style, ratio):
             f'NOT a tiny figure in a vast landscape, NEVER an empty landscape. '
             f'Warm palette only: warm cream background, warm flat cartoon colors, golden sunlight; '
             f'avoid cold blue grading, blue-tinted landscapes and dark blue tones. '
-            f'Scene to act out: {scene[:900]}. '
-            f'No text, no subtitles, no logos, no watermark, no split panels. '
+            f'Scene to act out: {_visual_shot(scene)}. '
+            f'No text, no subtitles, no logos, no watermark, no split panels, no extra limbs, no distorted faces. '
             f'Frame aspect ratio {ratio}.')
 
 
@@ -6714,7 +6761,7 @@ def generate_pollinations_image(scene, style, ratio, output, continuity, charact
                         f'LARGE prominent cartoon hero in the foreground: a cute 2D cartoon stickman boy, {_HERO_SHORT_ANCHORS}. '
                         f'The main character MUST appear LARGE in the foreground, NOT a tiny figure in a vast landscape, NEVER an empty landscape. '
                         f'Warm palette only: warm cream background, warm flat cartoon colors, golden sunlight; avoid cold blue grading, blue-tinted landscapes and dark blue tones. '
-                        f'Scene to act out: {scene[:500]}. No text, no watermark, no split panels.')
+                        f'Scene to act out: {_visual_shot(scene)[:500]}. No text, no watermark, no split panels.')
     else:
         if character_bible:
             short_bible = ('Character reference (use ONLY if the scene itself shows a person; '
@@ -7217,7 +7264,13 @@ def _motion_filter(motion_mode, frames, w, h, fps, scene_index=0):
         y = cy
     else:  # unknown value: safest is a static frame
         return None
-    return f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={fps}"
+    # v4: supersample 2x (lanczos) before zoompan; zoompan rounds x/y to whole
+    # pixels, so on a small source every frame jumps a pixel (the "shake").
+    sw, sh = w * 2, h * 2
+    pre = (f"scale={sw}:{sh}:force_original_aspect_ratio=increase:flags=lanczos,"
+           f"crop={sw}:{sh},setsar=1,")
+    post = ",eq=contrast=1.05:saturation=1.08,unsharp=5:5:0.6:5:5:0.0"
+    return pre + f"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={w}x{h}:fps={fps}" + post
 
 
 def probe_duration(path):
@@ -7325,7 +7378,7 @@ def _join_xfade(segments, durations, transition_mode, output, transition_picks=N
                    f'[0:v][1:v]xfade=transition={kinds[k]}'
                    f':duration={_XFADE_DURATION}:offset={offset:.3f}[vout]',
                    '-map', '[vout]', '-an', '-c:v', 'libx264',
-                   '-preset', 'ultrafast', '-crf', '24',
+                   '-preset', VIDEO_PRESET, '-crf', VIDEO_CRF,
                    '-pix_fmt', 'yuv420p', str(target)]
             p = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
             if p.returncode:
@@ -7340,7 +7393,7 @@ def _join_xfade(segments, durations, transition_mode, output, transition_picks=N
 
 
 # --- Timed captions: Karaoke Fill + One Word Pop (ASS burn-in) --------------
-async def _tts_save_with_timings(text, voice_name, rate, out_path):
+async def _tts_save_with_timings(text, voice_name, rate, out_path, pitch='+0Hz'):
     """Save one scene's Edge TTS audio AND capture its WordBoundary timings.
 
     Returns [(word, start_s, end_s), ...] relative to the scene start, or
@@ -7350,7 +7403,7 @@ async def _tts_save_with_timings(text, voice_name, rate, out_path):
     the caller then falls back to the plain save() path."""
     timings = []
     got_audio = False
-    comm = edge_tts.Communicate(text, voice_name, rate=rate, boundary='WordBoundary')
+    comm = edge_tts.Communicate(text, voice_name, rate=rate, pitch=pitch, boundary='WordBoundary')
     with open(out_path, 'wb') as fh:
         async for chunk in comm.stream():
             ctype = chunk.get('type')
@@ -7563,16 +7616,70 @@ CHARACTER_PREVIEWS = {
 }
 
 
+_SPEAKER_DEF = re.compile(r'^\s*@([A-Za-z0-9_]{1,12})\s*=\s*([A-Za-z]{2,3}-[A-Za-z]{2,4}-[A-Za-z]+Neural)'
+                          r'(?:\s*\|\s*([+-]\d{1,3}Hz))?(?:\s*\|\s*([+-]\d{1,3}%))?\s*$')
+_SPEAKER_TAG = re.compile(r'^\s*([A-Za-z0-9_]{1,12})\s*:\s*')
+
+
+def _parse_speakers(script):
+    """v4 dialogue mode. Lines at the top of the script like
+        @D=en-US-GuyNeural
+        @T=en-US-AnaNeural|+25Hz|+5%
+    define speakers (voice | pitch | rate). They are removed from the script.
+    Returns ({tag: (voice, pitch, rate)}, cleaned_script)."""
+    speakers, keep = {}, []
+    for line in str(script).splitlines():
+        m = _SPEAKER_DEF.match(line)
+        if m:
+            speakers[m.group(1).upper()] = (m.group(2), m.group(3) or '+0Hz', m.group(4) or '')
+        else:
+            keep.append(line)
+    return speakers, '\n'.join(keep).strip()
+
+
+def _assign_speakers(scenes, speakers):
+    """Give every scene its speaker's voice. A scene starting with "D:" switches
+    to speaker D; following scenes keep the last speaker (so a long line split
+    into sentences stays in one voice). The tag is removed from the spoken text
+    and captions. With no speakers defined, nothing changes."""
+    if not speakers:
+        return [None] * len(scenes), scenes
+    out_v, out_s, cur = [], [], None
+    for sc in scenes:
+        m = _SPEAKER_TAG.match(sc)
+        if m and m.group(1).upper() in speakers:
+            cur = speakers[m.group(1).upper()]
+            sc = sc[m.end():]
+        out_v.append(cur)
+        out_s.append(sc.strip() or sc)
+    return out_v, out_s
+
+
 def run_job(job, data):
     try:
         _check_cancel(job)  # cancelled while queued (fix v6): never start
         if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):
             raise RuntimeError('FFmpeg/ffprobe not found. Install FFmpeg and reopen CMD.')
         script = data['script'].strip()
+        speaker_map, script = _parse_speakers(script)
         scenes = split_scenes(script, data.get('sceneSplit', 'sentences'))
         edits = data.get('sceneEditsParsed')
         if edits:
             scenes = [entry['narration'] for entry in edits]
+        if speaker_map and not edits:
+            # dialogue mode: every script line is one speaker turn, split
+            # into sentences inside that turn only (never across speakers)
+            _turns = []
+            for _ln in script.splitlines():
+                if not _ln.strip():
+                    continue
+                _m = _SPEAKER_TAG.match(_ln)
+                _tag = _m.group(1).upper() if (_m and _m.group(1).upper() in speaker_map) else None
+                _body = _ln[_m.end():] if _tag else _ln
+                for _k, _piece in enumerate(split_scenes(_body, data.get('sceneSplit', 'sentences')) or [_body]):
+                    _turns.append(((_tag + ': ') if (_tag and _k == 0) else '') + _piece)
+            scenes = _turns or scenes
+        scene_voices, scenes = _assign_speakers(scenes, speaker_map)
         if not scenes: raise ValueError('Please enter a script.')
         if len(scenes) > MAX_SCENES: raise ValueError(f'This version allows a maximum of {MAX_SCENES} scenes in one video.')
         mode = data.get('imageMode', 'pollinations')
@@ -7610,13 +7717,17 @@ def run_job(job, data):
                 for idx, sc in enumerate(scenes):
                     piece = work / f'voice_{idx:04d}.mp3'
                     timings = None
+                    sv = scene_voices[idx] if idx < len(scene_voices) else None
+                    v_name = sv[0] if sv else voice_name
+                    v_pitch = sv[1] if sv else '+0Hz'
+                    v_rate = sv[2] if (sv and sv[2]) else data.get('speed', '+0%')
                     try:
                         timings = await _tts_save_with_timings(
-                            sc, voice_name, data.get('speed', '+0%'), piece)
+                            sc, v_name, v_rate, piece, v_pitch)
                     except Exception:
                         timings = None
-                        await edge_tts.Communicate(sc, voice_name,
-                                                   rate=data.get('speed','+0%')).save(str(piece))
+                        await edge_tts.Communicate(sc, v_name, rate=v_rate,
+                                                   pitch=v_pitch).save(str(piece))
                     word_timings.append(timings)
                     parts.append(piece)
             asyncio.run(speak_all())
@@ -7722,7 +7833,7 @@ def run_job(job, data):
         _wait_for_memory(job, 58)  # render phase is heavy: never start it RAM-starved
         update(job, 60, 'Rendering pictures, motion and transitions...')
         w,h=dimensions(data.get('ratio','9:16'))
-        fps=24
+        fps=VIDEO_FPS
         segments=[]
         transition=data.get('transitions','mixed')
         transition_picks = [q.strip() for q in str(data.get('transitionPicks', '')).split(',') if q.strip()]
@@ -7761,11 +7872,11 @@ def run_job(job, data):
                     fc = f'[0:v]{base_vf}[bg];[bg][1:v]overlay=0:0{fade_chain}[v]'
                     cmd=['ffmpeg','-y','-hide_banner','-loglevel','error','-stream_loop','-1','-i',str(src),
                          '-i',str(cap_png),'-filter_complex',fc,'-map','[v]','-frames:v',str(frames),
-                         '-an','-c:v','libx264','-preset','ultrafast','-crf','24','-pix_fmt','yuv420p',str(path)]
+                         '-an','-c:v','libx264','-preset',VIDEO_PRESET,'-crf',VIDEO_CRF,'-pix_fmt','yuv420p',str(path)]
                 else:
                     cmd=['ffmpeg','-y','-hide_banner','-loglevel','error','-stream_loop','-1','-i',str(src),
                          '-vf',base_vf+fade_chain,
-                         '-frames:v',str(frames),'-an','-c:v','libx264','-preset','ultrafast','-crf','24',
+                         '-frames:v',str(frames),'-an','-c:v','libx264','-preset',VIDEO_PRESET,'-crf',VIDEO_CRF,
                          '-pix_fmt','yuv420p',str(path)]
                 with SCENE_ENCODE_SEM:  # max 2 scene encodes at once, across all jobs
                     p=subprocess.run(cmd,capture_output=True,text=True,timeout=1800)
@@ -7783,7 +7894,7 @@ def run_job(job, data):
                 vf += [f'fade=t=in:st=0:d={fd:.3f}',f'fade=t=out:st={max(0,duration-fd):.3f}:d={fd:.3f}']
             cmd=['ffmpeg','-y','-hide_banner','-loglevel','error','-loop','1','-framerate',str(fps),
                  '-i',str(img),'-vf',','.join(vf),'-frames:v',str(frames),'-an','-c:v','libx264',
-                 '-preset','ultrafast','-crf','24','-pix_fmt','yuv420p',str(path)]
+                 '-preset',VIDEO_PRESET,'-crf',VIDEO_CRF,'-pix_fmt','yuv420p',str(path)]
             with SCENE_ENCODE_SEM:  # max 2 scene encodes at once, across all jobs
                 p=subprocess.run(cmd,capture_output=True,text=True,timeout=1800)
             if p.returncode: raise RuntimeError(f'Scene {i+1} FFmpeg error: '+p.stderr[-1200:])
@@ -7820,8 +7931,8 @@ def run_job(job, data):
         if data.get('musicPath'):
             cmd=['ffmpeg','-y','-hide_banner','-loglevel','error',
                  *video_args,'-i',str(audio),'-stream_loop','-1','-i',str(data['musicPath']),
-                 '-filter_complex','[1:a]volume=1.0[a1];[2:a]volume=0.16[a2];[a1][a2]amix=inputs=2:duration=first[aout]',
-                 '-map','0:v:0','-map','[aout]','-c:v','copy','-c:a','aac','-b:a','128k',
+                 '-filter_complex',MUSIC_DUCK_FILTER,
+                 '-map','0:v:0','-map','[aout]','-af','loudnorm=I=-14:TP=-1.5:LRA=11','-c:v','copy','-c:a','aac','-b:a','160k','-ar','44100',
                  '-shortest','-movflags','+faststart',str(result)]
         else:
             cmd=['ffmpeg','-y','-hide_banner','-loglevel','error',
@@ -7841,7 +7952,7 @@ def run_job(job, data):
             with HEAVY_LOCK:  # full-video re-encode: same one-at-a-time rule
                 p2 = subprocess.run(['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', '-i', str(result),
                                      '-vf', _ass_filter_arg(ass_path), '-map', '0:v:0', '-map', '0:a:0',
-                                     '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '24',
+                                     '-c:v', 'libx264', '-preset', VIDEO_PRESET, '-crf', VIDEO_CRF,
                                      '-pix_fmt', 'yuv420p', '-c:a', 'copy', '-movflags', '+faststart',
                                      str(cap_out)],
                                     capture_output=True, text=True, timeout=1800)
@@ -8015,7 +8126,7 @@ def _render_segment_for_rebuild(work, i, scene_text, kind, clip_src, durations,
     ffmpeg failure, like run_job."""
     ratio = settings.get('ratio', '9:16')
     w, h = dimensions(ratio)
-    fps = 24
+    fps = VIDEO_FPS
     duration = durations[i]
     transition = settings.get('transitions', 'mixed')
     seg_duration = duration + _XFADE_DURATION if (use_xfade and i < len(durations) - 1) else duration
@@ -8036,11 +8147,11 @@ def _render_segment_for_rebuild(work, i, scene_text, kind, clip_src, durations,
             fc = f'[0:v]{base_vf}[bg];[bg][1:v]overlay=0:0{fade_chain}[v]'
             cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', '-stream_loop', '-1', '-i', str(clip_src),
                    '-i', str(cap_png), '-filter_complex', fc, '-map', '[v]', '-frames:v', str(frames),
-                   '-an', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '24', '-pix_fmt', 'yuv420p', str(path)]
+                   '-an', '-c:v', 'libx264', '-preset', VIDEO_PRESET, '-crf', VIDEO_CRF, '-pix_fmt', 'yuv420p', str(path)]
         else:
             cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', '-stream_loop', '-1', '-i', str(clip_src),
                    '-vf', base_vf + fade_chain,
-                   '-frames:v', str(frames), '-an', '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '24',
+                   '-frames:v', str(frames), '-an', '-c:v', 'libx264', '-preset', VIDEO_PRESET, '-crf', VIDEO_CRF,
                    '-pix_fmt', 'yuv420p', str(path)]
         with SCENE_ENCODE_SEM:
             p = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
@@ -8058,7 +8169,7 @@ def _render_segment_for_rebuild(work, i, scene_text, kind, clip_src, durations,
         vf += [f'fade=t=in:st=0:d={fd:.3f}', f'fade=t=out:st={max(0, duration - fd):.3f}:d={fd:.3f}']
     cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', '-loop', '1', '-framerate', str(fps),
            '-i', str(img), '-vf', ','.join(vf), '-frames:v', str(frames), '-an', '-c:v', 'libx264',
-           '-preset', 'ultrafast', '-crf', '24', '-pix_fmt', 'yuv420p', str(path)]
+           '-preset', VIDEO_PRESET, '-crf', VIDEO_CRF, '-pix_fmt', 'yuv420p', str(path)]
     with SCENE_ENCODE_SEM:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)
     if p.returncode:
@@ -8314,8 +8425,8 @@ def _run_rebuild(job, rb):
         if music and Path(music).exists():
             cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
                    *video_args, '-i', str(audio), '-stream_loop', '-1', '-i', str(music),
-                   '-filter_complex', '[1:a]volume=1.0[a1];[2:a]volume=0.16[a2];[a1][a2]amix=inputs=2:duration=first[aout]',
-                   '-map', '0:v:0', '-map', '[aout]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k',
+                   '-filter_complex', MUSIC_DUCK_FILTER,
+                   '-map', '0:v:0', '-map', '[aout]', '-af', 'loudnorm=I=-14:TP=-1.5:LRA=11', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '160k', '-ar', '44100',
                    '-shortest', '-movflags', '+faststart', str(rebuilt)]
         else:
             cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
@@ -8337,7 +8448,7 @@ def _run_rebuild(job, rb):
                 p2 = subprocess.run(['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error',
                                      '-i', str(rebuilt), '-vf', _ass_filter_arg(ass_path),
                                      '-map', '0:v:0', '-map', '0:a:0', '-c:v', 'libx264',
-                                     '-preset', 'ultrafast', '-crf', '24', '-pix_fmt', 'yuv420p',
+                                     '-preset', VIDEO_PRESET, '-crf', VIDEO_CRF, '-pix_fmt', 'yuv420p',
                                      '-c:a', 'copy', '-movflags', '+faststart', str(cap_out)],
                                     capture_output=True, text=True, timeout=1800)
             if p2.returncode == 0:

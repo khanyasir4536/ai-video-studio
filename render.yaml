@@ -5,6 +5,12 @@ services:
     plan: free
     dockerfilePath: ./Dockerfile
     envVars:
+      # v6.11: STUDIO_HD defaults to "0" (720p) on purpose. The live
+      # service is a 512MB free Render service, and v4's own changelog
+      # warns low-RAM servers should use HD=0. 1080p stays fully
+      # available: flip this to "1" in the Render dashboard any time.
+      - key: STUDIO_HD
+        value: "0"
       - key: STUDIO_LAN
         value: "1"
       # Password Render dashboard mein khud set karna hai (kam az kam 12 harf).
